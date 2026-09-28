@@ -188,3 +188,58 @@ As the dataset mutates, the AOF log accumulates obsolete commands (e.g. intermed
 - Calls `fsync()` to ensure complete media flush.
 - Atomically replaces the active log using the POSIX atomic primitive `rename(tmp, target)`.
 - Guarantees crash safety: the active AOF log is never in a half-written or corrupted state.
+
+---
+
+## 7. Observability & Telemetry Subsystem
+
+MiniRedis provides first-class runtime visibility into its health, throughput, memory efficiency, and eviction activity:
+
+```
++-----------------------------------------------------------+
+|                      Client Request                       |
++-----------------------------------------------------------+
+                              |
+                     Parse & Route Command
+                              |
+                              v
+         +-------------------------------------------+
+         |  Metrics Collection:                      |
+         |  - total_commands_processed++             |
+         |  - keyspace_hits / keyspace_misses        |
+         |  - expired_keys / evicted_keys            |
+         +-------------------------------------------+
+                              |
+               +--------------+--------------+
+               |                             |
+               v                             v
+      [INFO Command]                  [EVENTS Command]
+  Standard Redis-formatted         In-memory ring buffer query
+  key:value telemetric stats:      returning JSON-formatted eviction
+  - Memory & key count             and expiration event stream
+  - Hit ratio & ops/sec            for Node.js dashboard bridge
+  - Uptime & connected clients
+```
+
+### 1. Zero-Cost Metrics Tracking
+- Monotonic counters (`total_commands_processed`, `keyspace_hits`, `keyspace_misses`, `expired_keys`, `evicted_keys`) are updated inline with $\mathcal{O}(1)$ operations without memory allocation.
+- `hit_ratio` is calculated on demand as $\frac{\text{hits}}{\text{hits} + \text{misses}} \times 100.0$.
+- `ops_per_sec` tracks real-time instantaneous throughput by measuring command throughput across sliding 1-second epochs.
+
+### 2. Standard `INFO` Command
+Formatted as newline-delimited `field:value\r\n` lines organized into logical sections (`# Server`, `# Clients`, `# Memory`, `# Persistence`, `# Stats`):
+- `used_memory`: Bytes allocated by keys, values, and tracker structures.
+- `total_keys`: Count of currently active keys.
+- `keyspace_hits` & `keyspace_misses`: Cache effectiveness counters.
+- `hit_ratio`: Cache hit percentage (`0.00%` - `100.00%`).
+- `evicted_keys`: Total keys evicted due to `maxmemory` constraints.
+- `expired_keys`: Total keys purged via passive or active TTL expiration.
+- `connected_clients`: Active client TCP connections.
+- `total_commands_processed`: Lifetime commands serviced.
+- `ops_per_sec`: Instantaneous operations executed per second.
+- `uptime_in_seconds`: Server elapsed runtime.
+
+### 3. Telemetry Event Stream (`EVENTS` / `MONITOR`)
+- A fixed-capacity, non-blocking `TelemetryRingBuffer` records recent system events (`EVICTION`, `EXPIRATION`).
+- The `EVENTS [count]` command exports recent history formatted for ingestion by the upcoming Node.js WebSocket bridge and React visualization dashboard.
+
