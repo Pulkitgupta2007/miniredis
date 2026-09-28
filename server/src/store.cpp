@@ -1,6 +1,8 @@
 #include "miniredis/store.h"
 
 #include <algorithm>
+#include <random>
+#include <unordered_set>
 
 namespace miniredis {
 
@@ -53,6 +55,30 @@ bool Store::is_expired(const Entry& entry) const {
     return current_time() >= *entry.expires_at;
 }
 
+void Store::add_or_update_expiry(const std::string& key, TimePoint exp) {
+    expires_[key] = exp;
+    if (expiry_index_.find(key) == expiry_index_.end()) {
+        expiry_index_[key] = expiry_keys_.size();
+        expiry_keys_.push_back(key);
+    }
+}
+
+void Store::remove_expiry(const std::string& key) {
+    expires_.erase(key);
+    auto it = expiry_index_.find(key);
+    if (it != expiry_index_.end()) {
+        size_t idx = it->second;
+        size_t last_idx = expiry_keys_.size() - 1;
+        if (idx != last_idx) {
+            const std::string& last_key = expiry_keys_[last_idx];
+            expiry_keys_[idx] = last_key;
+            expiry_index_[last_key] = idx;
+        }
+        expiry_keys_.pop_back();
+        expiry_index_.erase(it);
+    }
+}
+
 bool Store::check_and_expire(const std::string& key) {
     auto it = data_.find(key);
     if (it == data_.end()) {
@@ -60,7 +86,7 @@ bool Store::check_and_expire(const std::string& key) {
     }
 
     if (is_expired(it->second)) {
-        expires_.erase(key);
+        remove_expiry(key);
         data_.erase(it);
         return true;
     }
@@ -72,7 +98,7 @@ bool Store::set(const std::string& key,
                 std::string value,
                 std::optional<std::chrono::milliseconds> ttl,
                 SetCondition cond) {
-    // Passive expiration check first
+    // Lazy expiration check first
     check_and_expire(key);
 
     const bool key_exists = (data_.find(key) != data_.end());
@@ -92,10 +118,10 @@ bool Store::set(const std::string& key,
     std::optional<TimePoint> expires_at = std::nullopt;
     if (ttl.has_value()) {
         expires_at = current_time() + *ttl;
-        expires_.insert(key);
+        add_or_update_expiry(key, *expires_at);
     } else {
-        // Overwriting a key without TTL clears previous expiration
-        expires_.erase(key);
+        // Overwriting a key without TTL clears prior expiration
+        remove_expiry(key);
     }
 
     data_[key] = Entry{std::move(value), expires_at};
@@ -103,6 +129,7 @@ bool Store::set(const std::string& key,
 }
 
 std::optional<std::string> Store::get(const std::string& key) {
+    // Lazy expiration on access
     if (check_and_expire(key)) {
         return std::nullopt;
     }
@@ -123,7 +150,7 @@ bool Store::del(const std::string& key) {
         return false;
     }
 
-    expires_.erase(key);
+    remove_expiry(key);
     data_.erase(it);
     return true;
 }
@@ -139,6 +166,7 @@ size_t Store::del(const std::vector<std::string>& keys) {
 }
 
 bool Store::exists(const std::string& key) {
+    // Lazy expiration on access
     if (check_and_expire(key)) {
         return false;
     }
@@ -202,8 +230,9 @@ bool Store::pexpire(const std::string& key, std::chrono::milliseconds ms) {
         return true;
     }
 
-    it->second.expires_at = current_time() + ms;
-    expires_.insert(key);
+    TimePoint exp = current_time() + ms;
+    it->second.expires_at = exp;
+    add_or_update_expiry(key, exp);
     return true;
 }
 
@@ -218,62 +247,81 @@ bool Store::persist(const std::string& key) {
     }
 
     it->second.expires_at = std::nullopt;
-    expires_.erase(key);
+    remove_expiry(key);
     return true;
 }
 
-size_t Store::active_expire_cycle(size_t max_keys) {
-    if (expires_.empty() || max_keys == 0) {
-        return 0;
+ActiveExpireStats Store::active_expire_cycle(size_t sample_size, std::chrono::milliseconds time_budget) {
+    ActiveExpireStats stats;
+    if (expiry_keys_.empty() || sample_size == 0) {
+        return stats;
     }
 
-    size_t total_purged = 0;
+    auto start_time = current_time();
     constexpr size_t kMaxIterations = 16;
-    size_t iterations = 0;
+    std::mt19937 rng(42);
 
-    // Redis-style adaptive loop: sample up to max_keys; if >25% expired, sample again up to limit
-    while (iterations++ < kMaxIterations && !expires_.empty()) {
+    while (stats.iterations < kMaxIterations && !expiry_keys_.empty()) {
+        stats.iterations++;
+
+        size_t current_sample_size = std::min(sample_size, expiry_keys_.size());
+        size_t expired_in_iteration = 0;
+
+        // Collect sample_size random keys without replacement
         std::vector<std::string> sample;
-        sample.reserve(std::min(max_keys, expires_.size()));
+        sample.reserve(current_sample_size);
 
-        auto it = expires_.begin();
-        while (it != expires_.end() && sample.size() < max_keys) {
-            sample.push_back(*it);
-            ++it;
-        }
-
-        size_t purged_in_iteration = 0;
-        for (const auto& key : sample) {
-            auto data_it = data_.find(key);
-            if (data_it != data_.end() && is_expired(data_it->second)) {
-                expires_.erase(key);
-                data_.erase(data_it);
-                ++purged_in_iteration;
-            } else if (data_it == data_.end()) {
-                // Key removed without clearing expires
-                expires_.erase(key);
+        if (current_sample_size == expiry_keys_.size()) {
+            sample = expiry_keys_;
+        } else {
+            std::unordered_set<size_t> chosen_indices;
+            std::uniform_int_distribution<size_t> dist(0, expiry_keys_.size() - 1);
+            while (chosen_indices.size() < current_sample_size) {
+                chosen_indices.insert(dist(rng));
+            }
+            for (size_t idx : chosen_indices) {
+                sample.push_back(expiry_keys_[idx]);
             }
         }
 
-        total_purged += purged_in_iteration;
+        // Purge expired keys found in the random sample
+        for (const auto& key : sample) {
+            stats.sampled_keys++;
+            auto it = data_.find(key);
+            if (it != data_.end() && is_expired(it->second)) {
+                remove_expiry(key);
+                data_.erase(it);
+                ++stats.purged_keys;
+                ++expired_in_iteration;
+            } else if (it == data_.end()) {
+                remove_expiry(key);
+            }
+        }
 
-        // If less than 25% of sampled keys were expired, stop the cycle
-        if (purged_in_iteration * 4 < sample.size()) {
+        // Check elapsed time against time budget
+        if (current_time() - start_time >= time_budget) {
+            stats.timelimit_reached = true;
+            break;
+        }
+
+        // If <= 25% of sampled keys were expired, stop cycle (Redis adaptive threshold)
+        if (expired_in_iteration * 4 <= current_sample_size) {
             break;
         }
     }
 
-    return total_purged;
+    return stats;
 }
 
 size_t Store::dbsize() {
-    // Passive check could be performed, but for performance dbsize reports data_.size()
     return data_.size();
 }
 
 void Store::flushdb() {
     data_.clear();
     expires_.clear();
+    expiry_keys_.clear();
+    expiry_index_.clear();
 }
 
 void Store::flushall() {
@@ -289,11 +337,10 @@ std::string Store::ping(std::optional<std::string_view> message) {
 
 std::vector<std::string> Store::keys(std::string_view pattern) {
     std::vector<std::string> matched;
-    // Iterate and passively prune expired keys during keys enumeration
     auto it = data_.begin();
     while (it != data_.end()) {
         if (is_expired(it->second)) {
-            expires_.erase(it->first);
+            remove_expiry(it->first);
             it = data_.erase(it);
         } else {
             if (pattern == "*" || match_pattern(it->first, pattern)) {
@@ -306,7 +353,7 @@ std::vector<std::string> Store::keys(std::string_view pattern) {
 }
 
 size_t Store::expires_size() const {
-    return expires_.size();
+    return expiry_keys_.size();
 }
 
 } // namespace miniredis

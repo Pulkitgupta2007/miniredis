@@ -26,17 +26,26 @@ For Phase 1, `Store` wraps `std::unordered_map` to maintain a robust, leak-free 
 
 ---
 
-## 2. Expiration: Per-Key Timers vs. Hybrid Passive/Active Sweeps
+## 2. Expiration Data Structure: Min-Heap vs. Separate Map vs. Swap-and-Pop Vector
 
-- **Option A (Timer per Key / Min-Heap Priority Queue)**:
-  Maintain a min-heap sorted by expiration timestamp, or register OS timers (`timerfd`) per key.
-  - *Trade-off*: Insertion and deletion cost climbs to $O(\log N)$. Modifying TTLs requires an expensive heap sift-up/down or index mapping. Hundreds of thousands of simultaneous timers consume significant memory and CPU overhead.
-- **Option B (Redis-Style Hybrid Passive + Active Sampling)**:
-  Passive eviction on access + periodic probabilistic sampling from keys with TTL.
-  - *Trade-off*: Expired keys that are never read again linger in memory until picked up by active sampling. However, average CPU cost remains $O(1)$ per operation, and memory consumption remains strictly bounded.
+- **Option A (Min-Heap / Priority Queue)**:
+  `std::priority_queue<pair<TimePoint, string>>` ordered by earliest expiration.
+  - *Pros*: Finding the earliest expiring key is $\mathcal{O}(1)$.
+  - *Cons*: **Cannot support random sampling**. Removing a specific key on `DEL` or `PERSIST`, or updating TTL on `EXPIRE`, requires either $\mathcal{O}(N)$ linear scan through the heap or maintaining heap node indices with sift-up/sift-down operations ($\mathcal{O}(\log N)$). Furthermore, an attacker creating keys that expire in the distant future can push useless elements that block top-of-heap checks.
+- **Option B (Separate Expiry Map with Bucket Probing like Redis C)**:
+  `std::unordered_map<string, TimePoint>` where random buckets are inspected.
+  - *Pros*: $\mathcal{O}(1)$ lookup, update, and deletion.
+  - *Cons*: In C++, probing random buckets of `std::unordered_map` encounters empty buckets when load factor is low, resulting in variable sampling latency and CPU waste.
+- **Option C (Contiguous Array + Reverse Index Map - MiniRedis Implementation)**:
+  Combines `std::unordered_map<string, TimePoint> expires_` with `std::vector<string> expiry_keys_` and `std::unordered_map<string, size_t> expiry_index_`.
+  - *Pros*:
+    - **True $\mathcal{O}(1)$ Uniform Random Sampling**: Generating a random index in $[0, \text{size}-1]$ directly accesses an expiring key in $\mathcal{O}(1)$ without empty-bucket misses.
+    - **$\mathcal{O}(1)$ Deletion**: Swap-and-pop (swapping the target element with the back of the vector, then calling `pop_back()`) achieves constant-time deletion.
+    - **Cache Locality**: Expiry keys are packed contiguously in memory.
+  - *Cons*: Consumes an additional hash map entry (`expiry_index_`) per expiring key.
 
 ### Decision
-Option B matches Redis production semantics. It preserves constant-time $O(1)$ SET/GET performance.
+MiniRedis implements Option C. It provides strictly bounded, predictable sampling latency for the active expiration cycle while keeping all TTL operations (`SET EX`, `EXPIRE`, `PERSIST`, `DEL`) strictly $\mathcal{O}(1)$.
 
 ---
 

@@ -7,7 +7,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace miniredis {
@@ -16,6 +15,13 @@ enum class SetCondition {
     NONE, // Normal SET: overwrite unconditionally
     NX,   // Set only if key does NOT exist
     XX    // Set only if key ALREADY exists
+};
+
+struct ActiveExpireStats {
+    size_t sampled_keys{0};
+    size_t purged_keys{0};
+    size_t iterations{0};
+    bool timelimit_reached{false};
 };
 
 class Store {
@@ -52,25 +58,22 @@ public:
     bool pexpire(const std::string& key, std::chrono::milliseconds ms);
     bool persist(const std::string& key);
 
-    // Expiration Cycles
-    // Probabilistically samples up to max_keys from keys with TTLs and purges expired entries.
-    // Returns count of purged keys.
-    size_t active_expire_cycle(size_t max_keys = 20);
+    // Active Expiration Cycle
+    // Samples random keys with TTL (not a full scan), repeating if > 25% of sample is expired,
+    // bounded by a per-cycle time budget and maximum iteration ceiling.
+    ActiveExpireStats active_expire_cycle(
+        size_t sample_size = 20,
+        std::chrono::milliseconds time_budget = std::chrono::milliseconds(25));
 
     // Database Inspection & Management
     size_t dbsize();
     void flushdb();
-    void flushall(); // Clears all keys across the store
+    void flushall();
     std::string ping(std::optional<std::string_view> message = std::nullopt);
     std::vector<std::string> keys(std::string_view pattern = "*");
     size_t expires_size() const;
 
 private:
-    // Architectural Note:
-    // Store wraps std::unordered_map to decouple Redis protocol/command semantics
-    // (NX/XX conditions, monotonic TTL tracking, passive expiration) from table mechanics.
-    // std::unordered_map uses separate chaining with a bucket array of linked nodes,
-    // providing O(1) average lookup/insert/delete and standard exception safety.
     struct Entry {
         std::string value;
         std::optional<TimePoint> expires_at;
@@ -80,9 +83,20 @@ private:
     bool is_expired(const Entry& entry) const;
     bool check_and_expire(const std::string& key);
 
+    // Swap-and-pop expiry tracking for O(1) insertion, deletion, and random sampling
+    void add_or_update_expiry(const std::string& key, TimePoint exp);
+    void remove_expiry(const std::string& key);
+
     ClockFn clock_fn_;
     std::unordered_map<std::string, Entry> data_;
-    std::unordered_set<std::string> expires_; // Tracks keys that have an active TTL
+
+    // Expiry tracking structures:
+    // 1. Map of key -> expiration TimePoint
+    // 2. Contiguous array of expiring keys for uniform O(1) random sampling
+    // 3. Reverse index map of key -> position in expiry_keys_ for O(1) swap-and-pop removal
+    std::unordered_map<std::string, TimePoint> expires_;
+    std::vector<std::string> expiry_keys_;
+    std::unordered_map<std::string, size_t> expiry_index_;
 };
 
 } // namespace miniredis

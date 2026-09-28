@@ -34,7 +34,6 @@ TEST_F(StoreTest, BasicSetAndGet) {
 TEST_F(StoreTest, MissingKey) {
     Store store = create_mocked_store();
 
-    // Querying non-existent key returns nullopt
     EXPECT_FALSE(store.get("nonexistent_key").has_value());
     EXPECT_FALSE(store.exists("nonexistent_key"));
     EXPECT_EQ(store.ttl("nonexistent_key"), -2);
@@ -47,7 +46,6 @@ TEST_F(StoreTest, OverwriteValue) {
     EXPECT_TRUE(store.set("key", "val1"));
     EXPECT_EQ(store.get("key"), "val1");
 
-    // Overwrite existing key with new value
     EXPECT_TRUE(store.set("key", "val2"));
     EXPECT_EQ(store.get("key"), "val2");
     EXPECT_EQ(store.dbsize(), 1u);
@@ -56,11 +54,9 @@ TEST_F(StoreTest, OverwriteValue) {
 TEST_F(StoreTest, DeleteMissingKey) {
     Store store = create_mocked_store();
 
-    // Deleting a non-existent key should return false and not affect store size
     EXPECT_FALSE(store.del("no_such_key"));
     EXPECT_EQ(store.dbsize(), 0u);
 
-    // Multi-delete with non-existent keys
     store.set("real_key", "value");
     EXPECT_EQ(store.del(std::vector<std::string>{"no_such_key", "real_key", "another_missing"}), 1u);
     EXPECT_EQ(store.dbsize(), 0u);
@@ -69,14 +65,12 @@ TEST_F(StoreTest, DeleteMissingKey) {
 TEST_F(StoreTest, EmptyAndLargeValues) {
     Store store = create_mocked_store();
 
-    // Empty string as key and value
     EXPECT_TRUE(store.set("", ""));
     auto empty_val = store.get("");
     ASSERT_TRUE(empty_val.has_value());
     EXPECT_EQ(*empty_val, "");
     EXPECT_TRUE(store.del(""));
 
-    // Large value: 5 MB payload
     const size_t payload_size = 5 * 1024 * 1024;
     std::string large_val(payload_size, 'X');
     EXPECT_TRUE(store.set("large_key", large_val));
@@ -90,7 +84,6 @@ TEST_F(StoreTest, EmptyAndLargeValues) {
 TEST_F(StoreTest, BinarySafeKeysAndValues) {
     Store store = create_mocked_store();
 
-    // Keys and values containing embedded null bytes '\0' and arbitrary binary sequences
     std::string binary_key("key\0with\0nulls", 14);
     std::string binary_value("val\0\r\n\x01\x02\xFF\0end", 12);
 
@@ -102,7 +95,6 @@ TEST_F(StoreTest, BinarySafeKeysAndValues) {
     EXPECT_EQ(retrieved->size(), 12u);
     EXPECT_EQ(*retrieved, binary_value);
 
-    // Verify binary-safe deletion
     EXPECT_TRUE(store.del(binary_key));
     EXPECT_FALSE(store.exists(binary_key));
 }
@@ -110,10 +102,7 @@ TEST_F(StoreTest, BinarySafeKeysAndValues) {
 TEST_F(StoreTest, PingCommand) {
     Store store = create_mocked_store();
 
-    // PING with no arguments returns PONG
     EXPECT_EQ(store.ping(), "PONG");
-
-    // PING with argument echoes the argument
     EXPECT_EQ(store.ping("hello world"), "hello world");
     EXPECT_EQ(store.ping(""), "");
 }
@@ -136,12 +125,10 @@ TEST_F(StoreTest, FlushAll) {
 TEST_F(StoreTest, SetWithConditions) {
     Store store = create_mocked_store();
 
-    // NX: Set only if not exists
     EXPECT_TRUE(store.set("nx_key", "first", std::nullopt, SetCondition::NX));
     EXPECT_FALSE(store.set("nx_key", "second", std::nullopt, SetCondition::NX));
     EXPECT_EQ(store.get("nx_key"), "first");
 
-    // XX: Set only if exists
     EXPECT_FALSE(store.set("xx_key", "val", std::nullopt, SetCondition::XX));
     EXPECT_FALSE(store.exists("xx_key"));
 
@@ -178,6 +165,10 @@ TEST_F(StoreTest, ExistsSingleAndMultiple) {
     EXPECT_EQ(store.exists(std::vector<std::string>{"a", "b", "c", "d"}), 2u);
 }
 
+// -------------------------------------------------------------
+// Phase 3 Specific: TTL & Expiry with Mock Clock
+// -------------------------------------------------------------
+
 TEST_F(StoreTest, TTLAndPTTLCalculations) {
     Store store = create_mocked_store();
 
@@ -192,22 +183,38 @@ TEST_F(StoreTest, TTLAndPTTLCalculations) {
     EXPECT_EQ(store.pttl("temp"), 5000);
     EXPECT_EQ(store.ttl("temp"), 5);
 
+    // Advance mock time without real sleep
     advance_time(2000ms);
     EXPECT_EQ(store.pttl("temp"), 3000);
     EXPECT_EQ(store.ttl("temp"), 3);
 }
 
-TEST_F(StoreTest, PassiveExpiration) {
+TEST_F(StoreTest, LazyExpiryOnAccess) {
     Store store = create_mocked_store();
 
-    store.set("session", "xyz", 1000ms);
+    store.set("session", "token_123", 1000ms);
     EXPECT_TRUE(store.exists("session"));
+    EXPECT_EQ(store.expires_size(), 1u);
 
+    // Advance clock past expiration
     advance_time(1001ms);
 
+    // Lazy expiry triggered by get()
     EXPECT_FALSE(store.get("session").has_value());
-    EXPECT_FALSE(store.exists("session"));
-    EXPECT_EQ(store.ttl("session"), -2);
+    EXPECT_EQ(store.dbsize(), 0u);
+    EXPECT_EQ(store.expires_size(), 0u);
+
+    // Re-insert and test lazy expiry via exists()
+    store.set("session2", "token_456", 500ms);
+    advance_time(501ms);
+    EXPECT_FALSE(store.exists("session2"));
+    EXPECT_EQ(store.dbsize(), 0u);
+
+    // Re-insert and test lazy expiry via ttl()
+    store.set("session3", "token_789", 500ms);
+    advance_time(501ms);
+    EXPECT_EQ(store.ttl("session3"), -2);
+    EXPECT_EQ(store.dbsize(), 0u);
 }
 
 TEST_F(StoreTest, ExpireAndPexpire) {
@@ -232,28 +239,42 @@ TEST_F(StoreTest, PersistClearsTTL) {
     EXPECT_EQ(store.pttl("token"), 5000);
     EXPECT_EQ(store.expires_size(), 1u);
 
+    // PERSIST removes TTL and moves key from expiring to persistent
     EXPECT_TRUE(store.persist("token"));
     EXPECT_EQ(store.ttl("token"), -1);
     EXPECT_EQ(store.expires_size(), 0u);
 
+    // Calling PERSIST on key without TTL returns false
     EXPECT_FALSE(store.persist("token"));
 
-    advance_time(10'000ms);
+    // Advance time far into future; key must still persist
+    advance_time(100'000ms);
     EXPECT_EQ(store.get("token"), "abc");
 }
 
-TEST_F(StoreTest, OverwriteClearsPriorTTL) {
+TEST_F(StoreTest, TTLBehaviorAfterOverwrite) {
     Store store = create_mocked_store();
 
+    // 1. SET with TTL followed by standard SET without TTL clears the prior TTL
     store.set("k", "v1", 2000ms);
     EXPECT_EQ(store.expires_size(), 1u);
+    EXPECT_EQ(store.ttl("k"), 2);
 
-    store.set("k", "v2");
+    store.set("k", "v2"); // Overwrite without TTL
     EXPECT_EQ(store.expires_size(), 0u);
     EXPECT_EQ(store.ttl("k"), -1);
 
     advance_time(3000ms);
-    EXPECT_EQ(store.get("k"), "v2");
+    EXPECT_EQ(store.get("k"), "v2"); // Still alive!
+
+    // 2. SET with TTL followed by another SET with new TTL updates expiration
+    store.set("k", "v3", 10000ms);
+    EXPECT_EQ(store.ttl("k"), 10);
+    EXPECT_EQ(store.expires_size(), 1u);
+
+    // 3. SET NX on existing key fails and does not alter previous TTL
+    EXPECT_FALSE(store.set("k", "v4", 500ms, SetCondition::NX));
+    EXPECT_EQ(store.ttl("k"), 10); // Unaltered
 }
 
 TEST_F(StoreTest, ZeroOrNegativeTTLDeletesKey) {
@@ -267,31 +288,111 @@ TEST_F(StoreTest, ZeroOrNegativeTTLDeletesKey) {
     EXPECT_FALSE(store.exists("k2"));
 }
 
-TEST_F(StoreTest, ActiveExpireCycle) {
+TEST_F(StoreTest, ActiveExpireRandomSamplingAndPurge) {
     Store store = create_mocked_store();
 
-    for (int i = 0; i < 30; ++i) {
+    // Create 100 keys with TTL
+    for (int i = 0; i < 100; ++i) {
         store.set("exp_" + std::to_string(i), "val", 1000ms);
     }
-    for (int i = 0; i < 20; ++i) {
+    // Create 50 permanent keys
+    for (int i = 0; i < 50; ++i) {
         store.set("perm_" + std::to_string(i), "val");
     }
 
-    EXPECT_EQ(store.expires_size(), 30u);
-    EXPECT_EQ(store.dbsize(), 50u);
+    EXPECT_EQ(store.expires_size(), 100u);
+    EXPECT_EQ(store.dbsize(), 150u);
 
-    EXPECT_EQ(store.active_expire_cycle(20), 0u);
+    // Before expiration, active cycle should purge 0 keys
+    auto stats_pre = store.active_expire_cycle(20);
+    EXPECT_EQ(stats_pre.purged_keys, 0u);
 
+    // Advance clock past expiration
     advance_time(1500ms);
 
-    size_t purged = store.active_expire_cycle(20);
-    EXPECT_EQ(purged, 30u);
+    // Run active cycle: samples random keys without requiring GET calls
+    auto stats_post = store.active_expire_cycle(20);
+    EXPECT_GT(stats_post.purged_keys, 0u);
     EXPECT_EQ(store.expires_size(), 0u);
-    EXPECT_EQ(store.dbsize(), 20u);
+    EXPECT_EQ(store.dbsize(), 50u);
 
-    for (int i = 0; i < 20; ++i) {
+    // Verify all permanent keys remain intact
+    for (int i = 0; i < 50; ++i) {
         EXPECT_TRUE(store.exists("perm_" + std::to_string(i)));
     }
+}
+
+TEST_F(StoreTest, ActiveExpireRepeatsWhenOver25PercentExpired) {
+    Store store = create_mocked_store();
+
+    // Insert 40 keys with TTL
+    for (int i = 0; i < 40; ++i) {
+        store.set("key_" + std::to_string(i), "v", 500ms);
+    }
+
+    advance_time(600ms); // All 40 keys are now expired
+
+    // With sample size 20, 100% of sample is expired (> 25%).
+    // The cycle must loop more than 1 iteration and purge all 40 keys.
+    auto stats = store.active_expire_cycle(20);
+    EXPECT_GT(stats.iterations, 1u);
+    EXPECT_EQ(stats.purged_keys, 40u);
+    EXPECT_EQ(store.dbsize(), 0u);
+}
+
+TEST_F(StoreTest, ActiveExpireStopsWhenUnder25PercentExpired) {
+    Store store = create_mocked_store();
+
+    // Insert 100 keys with long TTL (1 hour)
+    for (int i = 0; i < 97; ++i) {
+        store.set("long_" + std::to_string(i), "v", 3600s);
+    }
+    // Insert 3 keys that expire soon (100ms)
+    for (int i = 0; i < 3; ++i) {
+        store.set("short_" + std::to_string(i), "v", 100ms);
+    }
+
+    advance_time(200ms);
+
+    // Sample 20 keys: at most 3 can be expired (3 / 20 = 15% <= 25%)
+    // The adaptive algorithm must stop after 1 iteration.
+    auto stats = store.active_expire_cycle(20);
+    EXPECT_EQ(stats.iterations, 1u);
+    EXPECT_FALSE(stats.timelimit_reached);
+}
+
+TEST_F(StoreTest, ActiveExpireTimeBudgetCeiling) {
+    // Inject a simulated clock that steps forward by 10ms on every call
+    int call_count = 0;
+    Store store([&call_count]() {
+        call_count++;
+        return Store::TimePoint(std::chrono::milliseconds(call_count * 10));
+    });
+
+    // Populate keys with expired TTLs
+    for (int i = 0; i < 200; ++i) {
+        store.set("k_" + std::to_string(i), "v", 1ms);
+    }
+
+    // Run active expire with a strict 25ms budget
+    auto stats = store.active_expire_cycle(10, 25ms);
+
+    // Must halt due to time budget ceiling
+    EXPECT_TRUE(stats.timelimit_reached);
+}
+
+TEST_F(StoreTest, DBSizeAndFlushDB) {
+    Store store = create_mocked_store();
+
+    EXPECT_EQ(store.dbsize(), 0u);
+    store.set("k1", "v1");
+    store.set("k2", "v2");
+    EXPECT_EQ(store.dbsize(), 2u);
+
+    store.flushdb();
+    EXPECT_EQ(store.dbsize(), 0u);
+    EXPECT_FALSE(store.exists("k1"));
+    EXPECT_FALSE(store.exists("k2"));
 }
 
 TEST_F(StoreTest, KeysPatternMatching) {
@@ -342,7 +443,7 @@ TEST(ChainedHashTableTest, OverwriteAndErase) {
     ChainedHashTable<std::string, std::string> table(4, 1.0f);
 
     EXPECT_TRUE(table.insert_or_assign("key", "val1"));
-    EXPECT_FALSE(table.insert_or_assign("key", "val2")); // overwrite
+    EXPECT_FALSE(table.insert_or_assign("key", "val2"));
     EXPECT_EQ(table.size(), 1u);
 
     const std::string* val = table.find("key");
@@ -350,13 +451,12 @@ TEST(ChainedHashTableTest, OverwriteAndErase) {
     EXPECT_EQ(*val, "val2");
 
     EXPECT_TRUE(table.erase("key"));
-    EXPECT_FALSE(table.erase("key")); // already erased
+    EXPECT_FALSE(table.erase("key"));
     EXPECT_EQ(table.size(), 0u);
     EXPECT_EQ(table.find("key"), nullptr);
 }
 
 TEST(ChainedHashTableTest, DynamicRehashing) {
-    // Start with 4 buckets; inserting 5 elements triggers rehash
     ChainedHashTable<int, int> table(4, 1.0f);
     EXPECT_EQ(table.bucket_count(), 4u);
 
@@ -368,7 +468,6 @@ TEST(ChainedHashTableTest, DynamicRehashing) {
     EXPECT_GT(table.bucket_count(), 4u);
     EXPECT_LE(table.load_factor(), 1.0f);
 
-    // Verify all keys remain intact after dynamic rehash
     for (int i = 0; i < 20; ++i) {
         int* v = table.find(i);
         ASSERT_NE(v, nullptr);

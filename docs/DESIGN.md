@@ -63,22 +63,31 @@ MiniRedis is decomposed into modular layers:
 ### 2. Binary Safety
 In C, strings are null-terminated (`\0`), making it impossible to store binary data (such as protobufs, encrypted tokens, or compressed buffers) containing embedded null bytes without truncation. MiniRedis keys and values use `std::string` and `std::string_view`, which explicitly store `size` alongside a continuous buffer pointer. This guarantees full binary safety across all commands (`SET`, `GET`, `DEL`, `KEYS`).
 
-### 2. Expiration Strategy (Dual Model)
+### 3. Expiration Strategy (Dual Model)
 Redis employs a hybrid strategy to balance CPU cycles and memory usage:
 
-1. **Passive (Lazy) Expiration**:
-   - Whenever any command (`GET`, `EXISTS`, `DEL`, `TTL`) touches a key, `check_and_expire(key)` is invoked.
-   - If the current monotonic timestamp exceeds `expires_at`, the entry is excised from `data_` and `expires_`, returning non-existent semantics to the caller.
+1. **Lazy (Passive) Expiration on Access**:
+   - Whenever any command (`GET`, `EXISTS`, `DEL`, `TTL`, `KEYS`) touches a key, `check_and_expire(key)` is invoked.
+   - If `current_time() >= expires_at`, the entry is excised from `data_` and `remove_expiry(key)` is called, returning non-existent semantics to the caller.
    - *Cost*: Zero background CPU; memory remains occupied until the key is accessed.
 
-2. **Active (Probabilistic) Expiration**:
-   - A periodic task (`active_expire_cycle`) runs at fixed intervals (e.g. 10 Hz in the event loop).
-   - Up to $N$ keys (default 20) are sampled from `expires_`.
-   - Expired keys in the sample are immediately purged.
-   - If the proportion of expired keys in the sample exceeds **25%**, the cycle repeats immediately up to a bounded iteration ceiling to avoid starving client requests.
-   - *Cost*: Controlled, bounded CPU budget; bounds unaccessed memory leakage.
+2. **Active (Probabilistic) Expiration with Time Budget**:
+   - Runs periodically during event loop idle ticks (e.g. 10 Hz).
+   - Rather than scanning all keys ($\mathcal{O}(N)$), it SAMPLES random keys from `expiry_keys_`.
+   - **Data Structure for $\mathcal{O}(1)$ Sampling**:
+     - `expires_`: `std::unordered_map<std::string, TimePoint>` for timestamp lookup.
+     - `expiry_keys_`: `std::vector<std::string>` storing only keys with active TTLs contiguously in memory.
+     - `expiry_index_`: `std::unordered_map<std::string, size_t>` storing each key's index in `expiry_keys_`.
+     - *Insertion*: append to vector and record index ($\mathcal{O}(1)$).
+     - *Deletion*: swap with the last element in the vector, update index, and pop back ($\mathcal{O}(1)$ swap-and-pop idiom).
+     - *Random Sampling*: sample $K$ random indices from $[0, \text{size}-1]$ without replacement in $\mathcal{O}(K)$ time.
+   - **Adaptive 25% Loop & Time Budget**:
+     - Samples $K$ keys (default 20).
+     - Purges expired keys in the sample.
+     - If the proportion of expired keys in the sample exceeds **25%**, the cycle repeats immediately to accelerate memory recovery.
+     - If elapsed execution time exceeds `time_budget` (default 25ms), the cycle halts immediately (`timelimit_reached = true`) to prevent event loop latency spikes.
 
-### 3. Monotonic Clocks and Test Determinism
+### 4. Monotonic Clocks and Zero-Sleep Deterministic Testing
 - Wall-clock time (`system_clock`) is susceptible to NTP sync adjustments, leap seconds, and daylight saving shifts.
 - MiniRedis uses `std::chrono::steady_clock` internally to ensure strictly monotonic intervals.
-- The `Store` constructor accepts an injectable `ClockFn`, decoupling time from system state and enabling instant, 100% deterministic unit tests without sleep overhead.
+- The `Store` constructor accepts an injectable `ClockFn`, decoupling time from system state and enabling instant, 100% deterministic unit tests without `sleep()` overhead.
