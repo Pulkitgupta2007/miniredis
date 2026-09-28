@@ -5,12 +5,15 @@ import { MemoryOpsChart } from './components/MemoryOpsChart';
 import { LruVisualizer } from './components/LruVisualizer';
 import { EventFeed } from './components/EventFeed';
 import { CommandConsole } from './components/CommandConsole';
+import { TrafficPlayground } from './components/TrafficPlayground';
+import { KeyspaceExplorer } from './components/KeyspaceExplorer';
 import './App.css';
 
 export function App() {
   const [online, setOnline] = useState(false);
   const [metrics, setMetrics] = useState({});
   const [lruKeys, setLruKeys] = useState([]);
+  const [lfuKeys, setLfuKeys] = useState([]);
   const [events, setEvents] = useState([]);
   const [history, setHistory] = useState([]);
   const [prefillCommand, setPrefillCommand] = useState('');
@@ -48,6 +51,7 @@ export function App() {
             setOnline(Boolean(msg.online));
             if (msg.metrics) setMetrics(msg.metrics);
             if (msg.lru_keys) setLruKeys(msg.lru_keys);
+            if (msg.lfu_keys) setLfuKeys(msg.lfu_keys);
             if (msg.events) setEvents(msg.events);
 
             if (msg.online && msg.metrics) {
@@ -162,13 +166,25 @@ export function App() {
         <div className="telemetry-row">
           <div className="telemetry-main">
             <MemoryOpsChart history={history} />
-            <LruVisualizer keys={lruKeys} onSelectKey={handleSelectKey} />
+            <LruVisualizer keys={lruKeys} lfuKeys={lfuKeys} onSelectKey={handleSelectKey} />
           </div>
 
           <div className="telemetry-sidebar">
             <EventFeed events={events} />
           </div>
         </div>
+
+        <KeyspaceExplorer
+          onExecute={executeCommand}
+          online={online}
+          onSelectKey={handleSelectKey}
+        />
+
+        <TrafficPlayground
+          onExecute={executeCommand}
+          online={online}
+          metrics={metrics}
+        />
 
         <CommandConsole
           onExecute={executeCommand}

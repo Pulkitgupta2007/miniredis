@@ -374,6 +374,12 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         return cr;
     }
 
+    if (cmd == "LFUKEYS" || cmd == "LFU.KEYS") {
+        auto keys = store.lfu_keys();
+        cr.response = RespSerializer::serialize_array(keys);
+        return cr;
+    }
+
     // Compatibility commands for real redis-cli
     if (cmd == "COMMAND") {
         cr.response = "*0\r\n";

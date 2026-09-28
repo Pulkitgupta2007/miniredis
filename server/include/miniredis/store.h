@@ -84,6 +84,7 @@ public:
     std::optional<size_t> memory_usage(const std::string& key);
     const EvictionRingBuffer& eviction_buffer() const noexcept;
     std::vector<std::string> lru_keys() const;
+    std::vector<std::string> lfu_keys() const;
 
     // TTL Operations
     int64_t ttl(const std::string& key);

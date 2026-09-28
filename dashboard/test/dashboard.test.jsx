@@ -1,12 +1,14 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { Header } from '../src/components/Header';
 import { MetricCards } from '../src/components/MetricCards';
 import { LruVisualizer } from '../src/components/LruVisualizer';
 import { EventFeed } from '../src/components/EventFeed';
 import { CommandConsole } from '../src/components/CommandConsole';
+import { TrafficPlayground } from '../src/components/TrafficPlayground';
+import { KeyspaceExplorer } from '../src/components/KeyspaceExplorer';
 
 describe('Header Component', () => {
   it('renders online state with uptime and clients', () => {
@@ -76,6 +78,27 @@ describe('LruVisualizer Component', () => {
     fireEvent.click(node);
     expect(onSelect).toHaveBeenCalledWith('user:3');
   });
+
+  it('switches to LFU mode and displays frequency buckets with min_freq', () => {
+    const onSelect = vi.fn();
+    const lfuKeys = ['k1:1', 'k2:1', 'k3:3'];
+
+    render(<LruVisualizer keys={['k3', 'k2', 'k1']} lfuKeys={lfuKeys} onSelectKey={onSelect} />);
+
+    // Click LFU Buckets toggle
+    const lfuBtn = screen.getByText('📊 LFU Buckets');
+    fireEvent.click(lfuBtn);
+
+    expect(screen.getByTestId('lfu-buckets')).toBeDefined();
+    expect(screen.getByText('Freq = 1')).toBeDefined();
+    expect(screen.getByText('Freq = 3')).toBeDefined();
+    expect(screen.getByText('min_freq 🎯')).toBeDefined();
+
+    // Click a key chip in LFU mode
+    const keyChip = screen.getByText('k1');
+    fireEvent.click(keyChip);
+    expect(onSelect).toHaveBeenCalledWith('k1');
+  });
 });
 
 describe('EventFeed Component', () => {
@@ -127,4 +150,192 @@ describe('CommandConsole Component', () => {
     const input = screen.getByTestId('console-input');
     expect(input.value).toBe('GET session:99');
   });
+
+  it('displays autocomplete suggestions when typing command prefix', () => {
+    render(<CommandConsole online={true} onExecute={vi.fn()} />);
+
+    const input = screen.getByTestId('console-input');
+    fireEvent.change(input, { target: { value: 'SE' } });
+
+    const popup = screen.getByTestId('autocomplete-popup');
+    expect(popup).toBeDefined();
+    const setOption = within(popup).getByText('SET');
+    expect(setOption).toBeDefined();
+
+    // Clicking autocomplete suggestion fills input
+    fireEvent.click(setOption);
+    expect(input.value).toBe('SET ');
+  });
+
+  it('renders syntax helper banner for recognized command', () => {
+    render(<CommandConsole online={true} onExecute={vi.fn()} />);
+
+    const input = screen.getByTestId('console-input');
+    fireEvent.change(input, { target: { value: 'EXPIRE user:1' } });
+
+    expect(screen.getByText('Syntax:')).toBeDefined();
+    expect(screen.getByText('EXPIRE <key> <seconds>')).toBeDefined();
+  });
 });
+
+describe('TrafficPlayground Component', () => {
+  const defaultMetrics = {
+    maxmemory: 0,
+    maxmemory_policy: 'noeviction',
+    used_memory: 1024
+  };
+
+  it('renders memory and policy configuration controls', () => {
+    render(
+      <TrafficPlayground
+        onExecute={vi.fn()}
+        online={true}
+        metrics={defaultMetrics}
+      />
+    );
+
+    expect(screen.getByTestId('traffic-playground')).toBeDefined();
+    expect(screen.getByText('Cache & Eviction Policy')).toBeDefined();
+    expect(screen.getByText('Traffic & Chaos Playground')).toBeDefined();
+    expect(screen.getByText('Burst 100 Keys')).toBeDefined();
+    expect(screen.getByText('80/20 Zipfian Reads')).toBeDefined();
+    expect(screen.getByText('Eviction Storm')).toBeDefined();
+  });
+
+  it('updates input when clicking preset memory buttons', () => {
+    render(
+      <TrafficPlayground
+        onExecute={vi.fn()}
+        online={true}
+        metrics={defaultMetrics}
+      />
+    );
+
+    const preset256 = screen.getByText('256 KB');
+    fireEvent.click(preset256);
+
+    const input = screen.getByPlaceholderText('0 = unlimited');
+    expect(input.value).toBe('256');
+  });
+
+  it('executes CONFIG SET when clicking apply button', async () => {
+    const onExecute = vi.fn().mockResolvedValue('OK');
+    render(
+      <TrafficPlayground
+        onExecute={onExecute}
+        online={true}
+        metrics={defaultMetrics}
+      />
+    );
+
+    // Select 50 KB
+    fireEvent.click(screen.getByText('50 KB'));
+    // Select allkeys-lru
+    const lruPill = screen.getByLabelText(/allkeys-lru/i);
+    fireEvent.click(lruPill);
+
+    const applyBtn = screen.getByText('Apply CONFIG SET');
+    fireEvent.click(applyBtn);
+
+    const feedback = await screen.findByText(/Saved: maxmemory=50 KB, policy=allkeys-lru/i);
+    expect(feedback).toBeDefined();
+
+    expect(onExecute).toHaveBeenCalledWith('CONFIG SET maxmemory 51200');
+    expect(onExecute).toHaveBeenCalledWith('CONFIG SET maxmemory-policy allkeys-lru');
+  });
+
+  it('triggers Burst 100 Keys simulation on click', async () => {
+    const onExecute = vi.fn().mockResolvedValue('OK');
+    render(
+      <TrafficPlayground
+        onExecute={onExecute}
+        online={true}
+        metrics={defaultMetrics}
+      />
+    );
+
+    const burstBtn = screen.getByText('Burst 100 Keys');
+    fireEvent.click(burstBtn);
+
+    expect(screen.getByText(/Bursting 100 rapid SET operations/i)).toBeDefined();
+    expect(onExecute).toHaveBeenCalled();
+  });
+});
+
+describe('KeyspaceExplorer Component', () => {
+  it('renders table headers and add key button', () => {
+    render(
+      <KeyspaceExplorer
+        onExecute={vi.fn().mockResolvedValue([])}
+        online={true}
+      />
+    );
+
+    expect(screen.getByTestId('keyspace-explorer')).toBeDefined();
+    expect(screen.getByText('Keyspace Explorer & Data Browser')).toBeDefined();
+    expect(screen.getByText('+ Add Key')).toBeDefined();
+    expect(screen.getByPlaceholderText('Search keys...')).toBeDefined();
+  });
+
+  it('renders keys with TTL and memory when fetched', async () => {
+    // Mock onExecute responses for KEYS, GET, TTL, MEMORY USAGE
+    const onExecute = vi.fn().mockImplementation((cmd) => {
+      if (cmd === 'KEYS *') return Promise.resolve(['sess:u1', 'cache:k2']);
+      if (cmd.startsWith('GET sess:u1')) return Promise.resolve('{"role":"admin"}');
+      if (cmd.startsWith('GET cache:k2')) return Promise.resolve('page_html');
+      if (cmd.startsWith('TTL sess:u1')) return Promise.resolve(120);
+      if (cmd.startsWith('TTL cache:k2')) return Promise.resolve(-1);
+      if (cmd.startsWith('MEMORY USAGE')) return Promise.resolve(128);
+      return Promise.resolve('OK');
+    });
+
+    // Mock global fetch to fail so it uses onExecute fallback
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    try {
+      render(
+        <KeyspaceExplorer
+          onExecute={onExecute}
+          online={true}
+        />
+      );
+
+      const keyEl = await screen.findByText('sess:u1');
+      expect(keyEl).toBeDefined();
+      expect(screen.getByText('cache:k2')).toBeDefined();
+      expect(screen.getByText('Persistent (∞)')).toBeDefined();
+      expect(screen.getByText(/120s/)).toBeDefined();
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+
+  it('opens Add Key modal and executes SET command', async () => {
+    const onExecute = vi.fn().mockResolvedValue('OK');
+    render(
+      <KeyspaceExplorer
+        onExecute={onExecute}
+        online={true}
+      />
+    );
+
+    fireEvent.click(screen.getByText('+ Add Key'));
+    expect(screen.getByText('Create New Key')).toBeDefined();
+
+    const keyInput = screen.getByPlaceholderText('e.g. user:profile:100');
+    fireEvent.change(keyInput, { target: { value: 'user:new:99' } });
+
+    const valInput = screen.getByPlaceholderText(/e\.g\. \{"name": "Alice"/);
+    fireEvent.change(valInput, { target: { value: 'SecretValue' } });
+
+    const submitBtn = screen.getByText('Set Key (SET)');
+    fireEvent.click(submitBtn);
+
+    expect(onExecute).toHaveBeenCalledWith('SET user:new:99 "SecretValue"');
+    const feedback = await screen.findByText(/Created key "user:new:99"/i);
+    expect(feedback).toBeDefined();
+  });
+});
+
+

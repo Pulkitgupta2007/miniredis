@@ -1,8 +1,10 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace miniredis {
 
@@ -113,6 +115,24 @@ public:
             min_freq_ = 0;
         }
         return key;
+    }
+
+    std::vector<std::string> get_keys_in_order() const {
+        std::vector<std::string> result;
+        std::map<size_t, FreqBucket*> sorted_buckets(freq_buckets_.begin(), freq_buckets_.end());
+        for (const auto& [freq, bucket] : sorted_buckets) {
+            if (!bucket || bucket->empty()) continue;
+            Node* curr = bucket->head->next;
+            while (curr != bucket->tail) {
+                result.push_back(curr->key + ":" + std::to_string(curr->freq));
+                curr = curr->next;
+            }
+        }
+        return result;
+    }
+
+    size_t min_freq() const noexcept {
+        return min_freq_;
     }
 
     void clear() {

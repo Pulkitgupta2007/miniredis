@@ -353,6 +353,10 @@ std::vector<std::string> Store::lru_keys() const {
     return lru_tracker_.get_keys_in_order();
 }
 
+std::vector<std::string> Store::lfu_keys() const {
+    return lfu_tracker_.get_keys_in_order();
+}
+
 int64_t Store::ttl(const std::string& key) {
     int64_t ms = pttl(key);
     if (ms < 0) {

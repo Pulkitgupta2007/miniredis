@@ -155,6 +155,15 @@ class RedisClient extends EventEmitter {
     }
   }
 
+  async getLfuKeys() {
+    try {
+      const raw = await this.sendCommand(['LFUKEYS']);
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }
+
   async getEvents(limit = 20) {
     try {
       const raw = await this.sendCommand(['EVENTS', String(limit)]);

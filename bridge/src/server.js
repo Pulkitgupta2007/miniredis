@@ -8,7 +8,7 @@ const RedisClient = require('./redis-client');
 function createBridgeServer(options = {}) {
   const redisPort = options.redisPort || parseInt(process.env.REDIS_PORT || '6379', 10);
   const redisHost = options.redisHost || process.env.REDIS_HOST || '127.0.0.1';
-  const port = options.port || parseInt(process.env.BRIDGE_PORT || '4000', 10);
+  const port = options.port !== undefined ? options.port : parseInt(process.env.BRIDGE_PORT || '4000', 10);
   const pollIntervalMs = options.pollInterval || 1000;
 
   const redis = new RedisClient({
@@ -23,6 +23,7 @@ function createBridgeServer(options = {}) {
     timestamp: Date.now(),
     metrics: {},
     lru_keys: [],
+    lfu_keys: [],
     events: []
   };
 
@@ -48,6 +49,38 @@ function createBridgeServer(options = {}) {
         connected_ws_clients: wss.clients.size,
         metrics: state.metrics
       }));
+    }
+
+    if (req.method === 'GET' && parsedUrl.pathname === '/api/keys') {
+      try {
+        const rawKeys = await redis.sendCommand('KEYS *');
+        const keyList = Array.isArray(rawKeys) ? rawKeys : [];
+        const targetKeys = keyList.slice(0, 100);
+        const details = await Promise.all(
+          targetKeys.map(async (k) => {
+            try {
+              const [val, ttl, mem] = await Promise.all([
+                redis.sendCommand(`GET ${k}`),
+                redis.sendCommand(`TTL ${k}`),
+                redis.sendCommand(`MEMORY USAGE ${k}`)
+              ]);
+              return {
+                key: k,
+                value: typeof val === 'string' ? val : (val === null ? null : String(val)),
+                ttl: typeof ttl === 'number' ? ttl : parseInt(ttl, 10) || -1,
+                memory: typeof mem === 'number' ? mem : parseInt(mem, 10) || 0
+              };
+            } catch {
+              return { key: k, value: null, ttl: -2, memory: 0 };
+            }
+          })
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, keys: details, total: keyList.length }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: err.message }));
+      }
     }
 
     if (req.method === 'POST' && parsedUrl.pathname === '/api/command') {
@@ -122,9 +155,10 @@ function createBridgeServer(options = {}) {
     }
 
     try {
-      const [metrics, lru_keys, events] = await Promise.all([
+      const [metrics, lru_keys, lfu_keys, events] = await Promise.all([
         redis.getInfo(),
         redis.getLruKeys(),
+        redis.getLfuKeys(),
         redis.getEvents(30)
       ]);
 
@@ -133,6 +167,7 @@ function createBridgeServer(options = {}) {
         timestamp: Date.now(),
         metrics: metrics || {},
         lru_keys: lru_keys || [],
+        lfu_keys: lfu_keys || [],
         events: events || []
       };
 
