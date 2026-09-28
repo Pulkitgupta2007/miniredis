@@ -185,4 +185,27 @@ When pipelining is enabled (`-P 16`), network round trips are amortized across 1
    - *Real Redis*: Does not maintain a linked list. Reads simply write a 24-bit clock integer inside the object header (`robj::lru = LRU_CLOCK()`).
    - *MiniRedis*: Fully updates both an explicit doubly-linked list (`lru_tracker_.touch()`) and frequency bucket pointers (`lfu_tracker_.touch()`) on every single `GET`, modifying multiple pointers and dirtying cache lines on what should be read-only lookups.
 
+---
+
+## 9. Deliberate Non-Goals & Architectural Exclusions
+
+To maximize depth over surface area, several production Redis features were deliberately excluded. Here is the rationale behind each non-goal:
+
+### 1. Redis Cluster & Hash Slot Partitioning
+- **Why Excluded**: Redis Cluster partitions keys across 16,384 hash slots (`CRC16(key) % 16384`) using gossip protocols for node failure detection, slot migration, and `MOVED`/`ASK` client redirects. Implementing clustering adds substantial distributed systems coordination code (membership tables, gossip messages, quorum leases) that distracts from the core systems engineering goal: mastering low-level socket multiplexing, zero-copy wire protocol parsing, memory management, and cache eviction algorithms.
+- **Production Path**: In production, clustering is typically deployed via Envoy proxies, Twemproxy, or client-side consistent hashing ring topologies without altering core single-node storage mechanics.
+
+### 2. Master-Replica Replication (`PSYNC` & Replication Backlog)
+- **Why Excluded**: Redis replication maintains a secondary connection stream where the master streams mutating commands alongside replication offset tracking (`REPLCONF ACK`) and a fixed circular replication backlog buffer for partial resynchronization (`PSYNC`). Because MiniRedis already implements continuous write-ahead append logging via AOF, replication would duplicate the serialization logic without adding architectural novelty to the project.
+
+### 3. Additional Composite Data Structures (Lists, Sets, Sorted Sets, Hashes, Streams)
+- **Why Excluded**: Production Redis implements dual memory encodings for composite collections to save memory (e.g. `ziplist`/`listpack` for small lists/hashes and `quicklist`/`dict`/`skiplist` for large collections). Adding 5 complex data types expands surface API code by thousands of lines without changing the core storage, networking, or persistence engine. We prioritized implementing custom chained hash tables, exact $\mathcal{O}(1)$ LRU and LFU cache engines, probabilistic active expiration sampling, and a full observability stack for Strings rather than shallow implementations of 20 collections.
+
+### 4. RDB Binary Snapshots (`fork()` Copy-On-Write)
+- **Why Excluded**: RDB creates point-in-time binary dumps by calling `fork()` and streaming memory pages to disk while the parent continues servicing requests via OS Copy-on-Write (COW). On modern large-memory systems, `fork()` introduces latency spikes during page table duplication and risks doubling server memory usage under high write throughput. We selected AOF because it provides superior durability ($\le 1\text{ second}$ loss under `everysec` vs 15 minutes under RDB) and verifiable human-readable crash recovery.
+
+### 5. Multi-Threaded I/O (Redis 6 Model)
+- **Why Excluded**: Redis 6 introduced auxiliary background worker threads for reading socket input buffers and formatting output buffers, while keeping command execution strictly single-threaded. Single-threaded reactor I/O was chosen to demonstrate mastery of raw non-blocking socket multiplexing (`epoll`/`kqueue`) and lock-free thread safety without the complexity of multi-threaded work-stealing rings.
+
+
 

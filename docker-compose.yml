@@ -1,0 +1,35 @@
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: miniredis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  bridge:
+    build:
+      context: ./bridge
+      dockerfile: Dockerfile
+    container_name: miniredis-bridge
+    environment:
+      - REDIS_HOST=server
+      - REDIS_PORT=6379
+      - BRIDGE_PORT=4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: miniredis-dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - bridge
+    restart: unless-stopped

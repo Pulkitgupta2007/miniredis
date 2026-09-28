@@ -1,165 +1,226 @@
-# MiniRedis System Design
+# MiniRedis System Design & Architectural Blueprint
 
-MiniRedis is an educational yet production-grade Redis clone written in modern C++17, designed to demonstrate core systems programming principles: non-blocking I/O event loops, the RESP2 wire protocol, in-memory data structures, cache expiration algorithms, and full-stack observability.
-
----
-
-## Architecture Overview
-
-MiniRedis is decomposed into modular layers:
-
-```
-+-----------------------------------------------------------+
-|                     Clients (redis-cli)                   |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-|             Networking & Event Loop (epoll / kqueue)      |
-|  - Non-blocking TCP socket multiplexer                    |
-|  - Connection state machine & per-client buffer mgmt      |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-|               RESP2 Protocol Parser / Serializer          |
-|  - Streaming zero-copy parser for RESP frames             |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-|                 Command Dispatcher & Router               |
-|  - Validates arity, executes command, encodes reply       |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-|                  Storage Engine (Store)                   |
-|  - Primary hash table (data_)                             |
-|  - Auxiliary TTL hash set (expires_)                      |
-|  - Hybrid Passive & Active TTL Eviction                   |
-+-----------------------------------------------------------+
-```
+MiniRedis is an educational yet production-grade Redis clone written in modern C++17, designed to demonstrate core systems programming principles: non-blocking I/O event loops, the RESP2 wire protocol, in-memory data structures, cache expiration algorithms, durability through append-only logging, and full-stack observability.
 
 ---
 
-## Phase 1: Storage Engine & Key-Value Core
+## 1. Architecture Overview
 
-### 1. Data Structures
-- **Primary Data Store (`data_`)**: `std::unordered_map<std::string, Entry>`
-  - Why wrap `std::unordered_map`?
-    - Provides a standard, collision-resistant separate chaining hash table with $\mathcal{O}(1)$ average complexity.
-    - Clean separation of concerns: table memory management and bucket distribution are isolated from Redis-specific semantics (NX/XX condition flags, monotonic TTL expiration, binary safety).
-  - `Entry` contains:
-    - `value`: `std::string`
-    - `expires_at`: `std::optional<std::chrono::steady_clock::time_point>`
-- **TTL Index (`expires_`)**: `std::unordered_set<std::string>`
-  - Tracks keys that have an associated TTL.
-  - Avoids full database scans during periodic active expiration sweeps.
-- **Custom Chained Hash Table (`ChainedHashTable<K, V>`) [Stretch Goal]**:
-  - Located in [`server/include/miniredis/chained_hash_table.h`](file:///Users/pulkit/miniredis/server/include/miniredis/chained_hash_table.h).
-  - Demonstrates manual implementation of a bucket array with singly linked nodes, pointer manipulation, and dynamic power-of-two rehashing triggered at load factor $\ge 1.0$.
+MiniRedis is decomposed into modular layers running on a single-threaded reactor event loop with background worker threads reserved exclusively for disk durability synchronization (`fsync`):
 
-### 2. Binary Safety
-In C, strings are null-terminated (`\0`), making it impossible to store binary data (such as protobufs, encrypted tokens, or compressed buffers) containing embedded null bytes without truncation. MiniRedis keys and values use `std::string` and `std::string_view`, which explicitly store `size` alongside a continuous buffer pointer. This guarantees full binary safety across all commands (`SET`, `GET`, `DEL`, `KEYS`).
+```
++-----------------------------------------------------------------------------------+
+|               Clients (redis-cli / redis-benchmark / Node.js Bridge)              |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v  [Raw TCP Sockets - Non-Blocking]
++-----------------------------------------------------------------------------------+
+|               Networking & Reactor Layer (Server / Poller)                        |
+|  - epoll (Linux) / kqueue (macOS) multiplexing                                    |
+|  - Edge-triggered non-blocking I/O with per-client buffer management              |
+|  - Signal handling via Unix Self-Pipe trick (SIGINT / SIGTERM)                    |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v  [Byte Streams]
++-----------------------------------------------------------------------------------+
+|               RESP2 Protocol Parser & Serializer (RespParser)                     |
+|  - Streaming zero-copy tokenization (std::string_view)                            |
+|  - RESP Arrays (*), Bulk Strings ($), Integers (:), Errors (-), Simple (+)        |
+|  - Inline command parsing fallback                                                |
+|  - Security bounds (512MB bulk limit, 1M array limit, 64 recursion limit)         |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v  [Command Tokens]
++-----------------------------------------------------------------------------------+
+|               Command Dispatcher & Router (Server::process_client_input)          |
+|  - Validates command arity, executes logic, produces RESP replies                 |
+|  - Tracks keyspace metrics (hits, misses, commands, ops/sec)                      |
++-----------------------------------------------------------------------------------+
+                  |                               |                     |
+                  v                               v                     v
++-------------------------------+ +-----------------------------+ +--------------------+
+|    Storage Engine (Store)     | |  Eviction Engine (LRU/LFU)  | |  AOF Persistence   |
+| - std::unordered_map /        | | - CONFIG SET maxmemory      | | - append-only log  |
+|   ChainedHashTable            | | - Exact O(1) LRU (DLL + Map)| | - fsync policies   |
+| - Binary-safe std::string     | | - Exact O(1) LFU (Buckets)  | | - PEXPIREAT epoch  |
+| - Monotonic steady_clock TTL  | | - TelemetryRingBuffer       | | - Auto truncation  |
+| - O(1) Active Expiry Sampling | | - OOM rejection on writes   | | - Atomic rename()  |
++-------------------------------+ +-----------------------------+ +--------------------+
+```
 
-### 3. Expiration Strategy (Dual Model)
-Redis employs a hybrid strategy to balance CPU cycles and memory usage:
+---
 
-1. **Lazy (Passive) Expiration on Access**:
-   - Whenever any command (`GET`, `EXISTS`, `DEL`, `TTL`, `KEYS`) touches a key, `check_and_expire(key)` is invoked.
-   - If `current_time() >= expires_at`, the entry is excised from `data_` and `remove_expiry(key)` is called, returning non-existent semantics to the caller.
-   - *Cost*: Zero background CPU; memory remains occupied until the key is accessed.
+## 2. Comprehensive Data Structures & Complexity Matrix
 
-2. **Active (Probabilistic) Expiration with Time Budget**:
-   - Runs periodically during event loop idle ticks (e.g. 10 Hz).
-   - Rather than scanning all keys ($\mathcal{O}(N)$), it SAMPLES random keys from `expiry_keys_`.
-   - **Data Structure for $\mathcal{O}(1)$ Sampling**:
-     - `expires_`: `std::unordered_map<std::string, TimePoint>` for timestamp lookup.
-     - `expiry_keys_`: `std::vector<std::string>` storing only keys with active TTLs contiguously in memory.
-     - `expiry_index_`: `std::unordered_map<std::string, size_t>` storing each key's index in `expiry_keys_`.
-     - *Insertion*: append to vector and record index ($\mathcal{O}(1)$).
-     - *Deletion*: swap with the last element in the vector, update index, and pop back ($\mathcal{O}(1)$ swap-and-pop idiom).
-     - *Random Sampling*: sample $K$ random indices from $[0, \text{size}-1]$ without replacement in $\mathcal{O}(K)$ time.
-   - **Adaptive 25% Loop & Time Budget**:
-     - Samples $K$ keys (default 20).
-     - Purges expired keys in the sample.
-     - If the proportion of expired keys in the sample exceeds **25%**, the cycle repeats immediately to accelerate memory recovery.
-     - If elapsed execution time exceeds `time_budget` (default 25ms), the cycle halts immediately (`timelimit_reached = true`) to prevent event loop latency spikes.
+The following matrix documents every core subsystem, its internal data structures, and its asymptotic time and space complexities:
 
-### 5. Memory Accounting & Eviction Engine (LRU and LFU)
+| Subsystem | Component | Data Structure | Operation | Average Time | Worst Time | Space Overhead |
+|---|---|---|---|---|---|---|
+| **Storage Engine** | Primary Key-Value Store | `std::unordered_map<std::string, Entry>` | `GET` / `EXISTS` | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ (hash collision) | $\sim 32\text{B} + \text{key} + \text{val}$ |
+| | | | `SET` / `DEL` | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ (hash collision) | $\sim 32\text{B} + \text{key} + \text{val}$ |
+| | | | `KEYS <pattern>` | $\mathcal{O}(N)$ | $\mathcal{O}(N)$ | $\mathcal{O}(K)$ matches |
+| | Custom Chained Table | `ChainedHashTable<K, V>` | `insert` / `find` / `erase` | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ | Bucket array + nodes |
+| **Expiration System** | Expiry Lookup Map | `std::unordered_map<std::string, TimePoint>` | Lookup / Update | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ | $\sim 48\text{B}$ per expiring key |
+| | Expiry Contiguous Keys | `std::vector<std::string>` | Random Sampling ($K$) | $\mathcal{O}(K)$ | $\mathcal{O}(K)$ | Contiguous strings |
+| | Expiry Reverse Index | `std::unordered_map<std::string, size_t>` | Swap-and-Pop Delete | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ | $\sim 40\text{B}$ per expiring key |
+| | Passive Expiry | Inline access check | `check_and_expire` | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | None |
+| | Active Expiry Loop | Probabilistic sampler | Sweep 20 keys ($\le 25\text{ms}$) | $\mathcal{O}(K)$ | $\mathcal{O}(K)$ (clamped) | None |
+| **Eviction Engine** | LRU Tracker | Sentinel Doubly-Linked List + Hash Map | `touch` / `add` | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | 2 pointers + node per key |
+| | | | `pop_lru` (Evict) | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | None |
+| | LFU Tracker | Map of Frequency Buckets (`size_t` $\to$ DLL) + Map | `touch` / `add` | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | Frequency buckets + nodes |
+| | | | `pop_lfu` (Evict) | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | None |
+| | Memory Tracking | Monotonic `used_memory_` byte counter | `update_memory` | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | 8 bytes |
+| | Eviction Telemetry | Fixed-capacity `TelemetryRingBuffer` | `push` / `get_recent` | $\mathcal{O}(1)$ / $\mathcal{O}(M)$ | $\mathcal{O}(1)$ / $\mathcal{O}(M)$ | $M \times \text{EventSize}$ |
+| **Networking** | Reactor Multiplexer | `Poller` (`epoll` on Linux, `kqueue` on macOS) | Register / Deregister | $\mathcal{O}(1)$ / $\mathcal{O}(\log N)$ | $\mathcal{O}(\log N)$ | Kernel interest list |
+| | | | Event Wait (`poll`) | $\mathcal{O}(\text{ready})$ | $\mathcal{O}(\text{ready})$ | Event buffer |
+| | Connection Manager | `std::unordered_map<int, Client>` | Socket lookup / cleanup | $\mathcal{O}(1)$ | $\mathcal{O}(N)$ | Per-client buffer |
+| | Graceful Teardown | Unix Self-Pipe (`pipe[2]`) | Signal notification | $\mathcal{O}(1)$ | $\mathcal{O}(1)$ | 2 file descriptors |
+| **Protocol Parser** | RESP2 Parser | Streaming `RespParser` (`std::string_view`) | `parse` frame | $\mathcal{O}(L)$ ($L = \text{bytes}$) | $\mathcal{O}(L)$ | Zero allocations |
+| **Persistence (AOF)** | Write-Ahead Logger | `AofManager` (File Descriptor `write()`) | Append write frame | $\mathcal{O}(L)$ | $\mathcal{O}(L)$ | OS Page Cache |
+| | Background Fsync | Worker Thread (`std::thread` + conditional) | `fsync()` at 1 Hz | $\mathcal{O}(\text{dirty})$ | Disk I/O bound | 1 thread stack |
+| | Atomic Compaction | Temp file + POSIX `rename()` | `rewrite_aof` | $\mathcal{O}(N)$ keys | $\mathcal{O}(N)$ keys | Proportional to DB size |
 
-MiniRedis implements strict memory accounting and pluggable eviction policies configurable via `CONFIG SET maxmemory` and `CONFIG SET maxmemory-policy`:
+---
+
+## 3. Component Details & Implementation Architecture
+
+### Phase 1: Storage Engine & Key-Value Core
+
+#### 1. Primary Data Store (`data_`)
+- Encapsulates `std::unordered_map<std::string, Entry>`.
+- `Entry` contains:
+  - `value`: `std::string` (binary-safe, capacity-tracked)
+  - `expires_at`: `std::optional<std::chrono::steady_clock::time_point>`
+- **Why wrap `std::unordered_map`?**
+  - Isolates table allocation and collision chaining from Redis command logic (NX/XX flags, monotonic TTL, memory accounting).
+  - Employs standard RAII resource cleanup with zero memory leak hazards.
+- **Custom Chained Hash Table (`ChainedHashTable<K, V>`)**:
+  - Implemented in [`server/include/miniredis/chained_hash_table.h`](file:///Users/pulkit/miniredis/server/include/miniredis/chained_hash_table.h) as an educational stretch goal.
+  - Features manual bucket pointer arrays, singly linked node chains, and dynamic power-of-two growth triggered when load factor $\ge 1.0$.
+
+#### 2. Binary Safety
+In standard C, strings are null-terminated (`\0`), truncating binary data (protobufs, encryption keys, compressed blobs). MiniRedis keys and values use `std::string` and `std::string_view` which explicitly store `size` alongside buffer pointers, guaranteeing zero data corruption across embedded null bytes.
+
+---
+
+### Phase 2: Networking & Event Loop (epoll / kqueue Reactor)
+
+MiniRedis implements a single-threaded non-blocking reactor multiplexing all I/O through a unified cross-platform abstraction:
 
 ```
 +-----------------------------------------------------------+
-|               Write Command Execution (SET)               |
+|                   Main Reactor Event Loop                 |
 +-----------------------------------------------------------+
-                              |
-                     Estimate Memory Delta
-                              |
-                              v
-        +-------------------------------------------+
-        |  used_memory + delta > maxmemory ?        |
-        +-------------------------------------------+
-               |                             |
-              YES                            NO
-               |                             |
-      Check Policy                           v
-        /        \                   Commit Write to Store
-       /          \                  Update LRU & LFU Trackers
-      v            v
-[noeviction]   [allkeys-lru / allkeys-lfu]
-      |                    |
-Return -OOM         Eviction Loop:
-                    - Pop victim key in O(1)
-                    - Free memory
-                    - Record to EvictionRingBuffer
+                             |
+                     poller.poll(timeout)
+                             |
+         +-------------------+-------------------+
+         |                                       |
+    [Listen FD]                             [Client FD]
+         |                                       |
+   accept() loop                           read() loop
+   set_nonblocking()                       append to in_buf
+   register with Poller                    process_client_input()
 ```
 
-#### A. Custom $\mathcal{O}(1)$ LRU Tracker
-- **Data Structures**: `std::unordered_map<std::string, Node*>` paired with a doubly linked list with sentinel `head` (MRU) and `tail` (LRU) nodes.
-- **Operations**:
-  - `add(key)`: Inserts at head in $\mathcal{O}(1)$.
-  - `touch(key)`: Splices node from its current position to the head in $\mathcal{O}(1)$.
-  - `pop_lru()`: Detaches `tail->prev` in $\mathcal{O}(1)$.
+#### 1. Cross-Platform Poller Abstraction
+- **Linux**: Employs `epoll_create1(0)`, `epoll_ctl()`, and `epoll_wait()`. Uses level-triggered readiness with non-blocking reads.
+- **macOS / BSD**: Employs `kqueue()`, `EV_SET()`, and `kevent()`. Translates filter read events cleanly.
+- Unified interface [`server/include/miniredis/poller.h`](file:///Users/pulkit/miniredis/server/include/miniredis/poller.h) shields the server engine from operating system divergences.
 
-#### B. Custom $\mathcal{O}(1)$ LFU Tracker
-- **Data Structures**:
-  - `key_map_`: `std::unordered_map<std::string, Node*>` tracking node references.
-  - `freq_buckets_`: `std::unordered_map<size_t, FreqBucket*>` mapping access count $\to$ Doubly Linked List of keys.
+#### 2. Unix Self-Pipe Trick for Graceful Shutdown
+Signal handlers cannot safely invoke non-reentrant functions (e.g. `malloc`, C++ standard library allocations, socket closures). MiniRedis registers a POSIX signal handler for `SIGINT` and `SIGTERM` that writes a single byte to `signal_pipe_[1]`. The read end `signal_pipe_[0]` is registered directly with the `Poller`. Upon receiving a signal, the reactor wakes synchronously, cleanly breaks its loop, and executes structured teardown on the main thread.
+
+---
+
+### Phase 3: TTL / Expiration Subsystem
+
+MiniRedis uses a dual passive + active expiration model:
+
+```
++--------------------------------------------------------------------+
+|                         Expiration Engine                          |
++--------------------------------------------------------------------+
+              |                                        |
+              v                                        v
+     [Passive Expiry]                         [Active Expiry]
+     - Triggered on command access             - Periodic cycle (10 Hz)
+     - check_and_expire(key)                   - Samples 20 random keys in O(1)
+     - Purges entry if now >= expires_at       - If >25% expired, repeats
+                                               - Bounded by 25ms time budget
+```
+
+#### 1. True $\mathcal{O}(1)$ Random Sampling Data Structure
+A standard hash table cannot be sampled uniformly at random in $\mathcal{O}(1)$ time because empty buckets at low load factors cause sampling misses. MiniRedis solves this using three synchronized structures:
+1. `expires_`: `std::unordered_map<std::string, TimePoint>` for $\mathcal{O}(1)$ timestamp lookup.
+2. `expiry_keys_`: `std::vector<std::string>` storing only expiring keys contiguously.
+3. `expiry_index_`: `std::unordered_map<std::string, size_t>` storing each key's array index.
+
+**Swap-and-Pop Deletion**:
+When an expiring key is deleted or refreshed:
+```cpp
+size_t idx = expiry_index_[key];
+std::string last_key = expiry_keys_.back();
+expiry_keys_[idx] = last_key;
+expiry_index_[last_key] = idx;
+expiry_keys_.pop_back();
+expiry_index_.erase(key);
+expires_.erase(key);
+```
+This guarantees **true $\mathcal{O}(1)$ insertion, update, deletion, and random sampling**.
+
+#### 2. Adaptive Active Expiry Cycle
+- Samples 20 keys uniformly at random from `expiry_keys_`.
+- Deletes expired keys.
+- If $>25\%$ of the sample was expired, the loop repeats immediately to clear memory pressure.
+- Halts immediately when execution time reaches `kActiveExpireBudgetMs = 25ms` to prevent event-loop latency spikes.
+
+---
+
+### Phase 4: Eviction Engine (LRU and LFU)
+
+MiniRedis implements configurable memory limits via `CONFIG SET maxmemory <bytes>` and `CONFIG SET maxmemory-policy [noeviction | allkeys-lru | allkeys-lfu]`.
+
+#### 1. Memory Accounting
+Memory footprint per key-value entry is calculated deterministically:
+$$\text{Entry Memory} = \text{key.size}() + \text{value.size}() + \text{sizeof(Entry)} + \text{kTrackerOverhead}$$
+Where `kTrackerOverhead = 64` bytes accounts for hash bucket nodes and tracker pointers.
+
+#### 2. Custom Exact $\mathcal{O}(1)$ LRU Cache
+- Implemented in [`server/include/miniredis/lru_tracker.h`](file:///Users/pulkit/miniredis/server/include/miniredis/lru_tracker.h).
+- Uses a hash map `std::unordered_map<std::string, Node*>` paired with an explicit doubly linked list with sentinel `head` (MRU) and `tail` (LRU) nodes.
+- `touch(key)`: Detaches node and splices to head in $\mathcal{O}(1)$.
+- `pop_lru()`: Detaches `tail->prev` in $\mathcal{O}(1)$.
+
+#### 3. Custom Exact $\mathcal{O}(1)$ LFU Cache (Frequency Buckets)
+- Implemented in [`server/include/miniredis/lfu_tracker.h`](file:///Users/pulkit/miniredis/server/include/miniredis/lfu_tracker.h).
+- Structure:
+  - `key_map_`: `std::unordered_map<std::string, Node*>`
+  - `freq_buckets_`: `std::unordered_map<size_t, FreqBucket*>` mapping frequency $\to$ Doubly Linked List of keys.
   - `min_freq_`: Tracks current global minimum frequency.
-- **Operations**:
-  - `add(key)`: Inserts key with frequency 1 at head of `freq_buckets_[1]`; sets `min_freq_ = 1` ($\mathcal{O}(1)$).
-  - `touch(key)`: Detaches node from `freq_buckets_[old_freq]`; increments `min_freq_` if old bucket is now empty; attaches to head of `freq_buckets_[old_freq + 1]` ($\mathcal{O}(1)$).
-  - `pop_lfu()`: Pops from `tail` of `freq_buckets_[min_freq_]` ($\mathcal{O}(1)$).
-  - **Tie-Breaking**: Within the same frequency bucket, keys are arranged in MRU-to-LRU order. Evicting from `tail` guarantees that the least recently accessed key among those with the minimum frequency is chosen.
-
-#### C. In-Memory Eviction Ring Buffer
-- Fixed-capacity circular array of `EvictionEvent` structs (`key`, `policy`, `timestamp_ms`, `freed_bytes`).
-- Non-allocating after initialization; stores the last $N$ evictions for real-time telemetry streaming to the Node.js bridge and React dashboard.
+- **LRU Tie-Breaking**: Keys inside each frequency bucket are maintained in MRU-to-LRU order. When evicting, the node at the tail of `freq_buckets_[min_freq_]` is selected, guaranteeing that the least-recently used key among lowest-frequency candidates is evicted.
 
 ---
 
-## 6. Persistence Engine (Append-Only File - AOF)
+### Phase 5: Append-Only File (AOF) Persistence & Crash Recovery
 
-MiniRedis provides crash recovery and durability via an Append-Only File (AOF) logger executing at the server event loop layer:
+MiniRedis logs all state-mutating commands to disk in RESP format:
 
 ```
 +-----------------------------------------------------------+
 |               Write Command Execution (SET, etc)          |
 +-----------------------------------------------------------+
-                              |
+                             |
                      Command Succeeded
-                              |
-                              v
+                             |
+                             v
         +-------------------------------------------+
         |  AOF Logger: Serialize to RESP Array      |
         +-------------------------------------------+
-                              |
-                    write(aof_fd, frame)
-                              |
-                              v
+                             |
+                   write(aof_fd, frame)
+                             |
+                             v
         +-------------------------------------------+
         | Fsync Policy Check:                       |
         | - ALWAYS:   fsync() immediately           |
@@ -168,86 +229,32 @@ MiniRedis provides crash recovery and durability via an Append-Only File (AOF) l
         +-------------------------------------------+
 ```
 
-### 1. Absolute Timestamp Translation for TTL
-Relative expirations (`SET k v EX 10`) cannot be logged directly; replaying them upon server reboot would erroneously extend key lifetimes by another 10 seconds.
-- During logging and rewrite, relative timeouts are translated to absolute Unix timestamps:
-  `PEXPIREAT <key> <absolute_epoch_ms>`
-- On replay, `pexpireat(key, absolute_ms)` calculates remaining time relative to current epoch time.
-- If the timestamp is in the past (`remaining <= 0`), the key is discarded immediately and **never resurrected**.
+#### 1. Relative to Absolute Epoch Translation
+Relative TTL options (`SET k v EX 10`) cannot be logged directly, as replaying them on server reboot would resurrect expired keys. MiniRedis translates all relative expirations to absolute epoch millisecond timestamps:
+$$\text{PEXPIREAT} \quad \text{key} \quad \text{epoch\_ms}$$
+On replay, `pexpireat()` calculates remaining time relative to current wall-clock time. If the timestamp has passed, the key is pruned immediately.
 
-### 2. Crash Recovery & Partial Record Truncation
-Power failures or unexpected crashes during a write operation can leave a half-written RESP frame at the tail of the AOF log.
-- On startup, `AofManager::replay()` parses frames iteratively while recording the byte offset of the last valid command.
-- If the stream ends with an `Incomplete` or corrupted frame, MiniRedis detects the incomplete record, issues a warning, and calls `ftruncate(fd, last_valid_offset)`.
-- Normal startup resumes with zero manual operator intervention.
+#### 2. Crash Truncation Auto-Recovery
+A power loss or crash mid-write leaves a partial RESP frame at the tail of the log. During startup replay, `AofManager` tracks the byte offset of the last complete command. Upon encountering an incomplete or corrupted frame at EOF, it logs a warning and calls:
+```cpp
+::ftruncate(fd, last_valid_offset);
+```
+Truncating the invalid tail allows the server to recover automatically without manual intervention.
 
-### 3. Atomic Log Compaction (`BGREWRITEAOF`)
-As the dataset mutates, the AOF log accumulates obsolete commands (e.g. intermediate updates to a counter or deleted keys).
-- The rewrite process snapshots all live keys in the current `Store`.
-- Compiles the minimal state into a temporary file: `<filename>.rewrite.tmp`.
-- Calls `fsync()` to ensure complete media flush.
-- Atomically replaces the active log using the POSIX atomic primitive `rename(tmp, target)`.
-- Guarantees crash safety: the active AOF log is never in a half-written or corrupted state.
+#### 3. Atomic Compaction (`BGREWRITEAOF`)
+Compaction serializes current memory state into a temporary file (`<path>.rewrite.tmp`), calls `fsync()` to flush physical disk buffers, and atomically swaps the file using `::rename()`.
 
 ---
 
-## 7. Observability & Telemetry Subsystem
+### Phase 6: Observability & Telemetry Subsystem
 
-MiniRedis provides first-class runtime visibility into its health, throughput, memory efficiency, and eviction activity:
-
-```
-+-----------------------------------------------------------+
-|                      Client Request                       |
-+-----------------------------------------------------------+
-                              |
-                     Parse & Route Command
-                              |
-                              v
-         +-------------------------------------------+
-         |  Metrics Collection:                      |
-         |  - total_commands_processed++             |
-         |  - keyspace_hits / keyspace_misses        |
-         |  - expired_keys / evicted_keys            |
-         +-------------------------------------------+
-                              |
-               +--------------+--------------+
-               |                             |
-               v                             v
-      [INFO Command]                  [EVENTS Command]
-  Standard Redis-formatted         In-memory ring buffer query
-  key:value telemetric stats:      returning JSON-formatted eviction
-  - Memory & key count             and expiration event stream
-  - Hit ratio & ops/sec            for Node.js dashboard bridge
-  - Uptime & connected clients
-```
-
-### 1. Zero-Cost Metrics Tracking
-- Monotonic counters (`total_commands_processed`, `keyspace_hits`, `keyspace_misses`, `expired_keys`, `evicted_keys`) are updated inline with $\mathcal{O}(1)$ operations without memory allocation.
-- `hit_ratio` is calculated on demand as $\frac{\text{hits}}{\text{hits} + \text{misses}} \times 100.0$.
-- `ops_per_sec` tracks real-time instantaneous throughput by measuring command throughput across sliding 1-second epochs.
-
-### 2. Standard `INFO` Command
-Formatted as newline-delimited `field:value\r\n` lines organized into logical sections (`# Server`, `# Clients`, `# Memory`, `# Persistence`, `# Stats`):
-- `used_memory`: Bytes allocated by keys, values, and tracker structures.
-- `total_keys`: Count of currently active keys.
-- `keyspace_hits` & `keyspace_misses`: Cache effectiveness counters.
-- `hit_ratio`: Cache hit percentage (`0.00%` - `100.00%`).
-- `evicted_keys`: Total keys evicted due to `maxmemory` constraints.
-- `expired_keys`: Total keys purged via passive or active TTL expiration.
-- `connected_clients`: Active client TCP connections.
-- `total_commands_processed`: Lifetime commands serviced.
-- `ops_per_sec`: Instantaneous operations executed per second.
-- `uptime_in_seconds`: Server elapsed runtime.
-
-### 3. Telemetry Event Stream (`EVENTS` / `MONITOR`)
-- A fixed-capacity, non-blocking `TelemetryRingBuffer` records recent system events (`EVICTION`, `EXPIRATION`).
-- The `EVENTS [count]` command exports recent history formatted for ingestion by the upcoming Node.js WebSocket bridge and React visualization dashboard.
+- **`INFO` Command**: Returns standard Redis-formatted key-value telemetry organized into `# Server`, `# Clients`, `# Memory`, `# Persistence`, and `# Stats`.
+- **Sliding-Window Throughput Tracking**: Instantaneous `ops_per_sec` is tracked using 1-second sliding time windows.
+- **`EVENTS [limit]` Command**: Streams real-time eviction and expiration events from a non-blocking in-memory circular ring buffer (`TelemetryRingBuffer`).
 
 ---
 
-## 8. Node.js Bridge & Real-Time React Dashboard
-
-The monitoring stack bridges the low-level C++ TCP networking layer to a web-based real-time dashboard:
+### Phase 7: Node.js Bridge & Real-Time React Dashboard
 
 ```
 +-----------------------------------------------------------+
@@ -277,20 +284,18 @@ The monitoring stack bridges the low-level C++ TCP networking layer to a web-bas
 +-----------------------------------------------------------+
 ```
 
-### 1. Zero-Dependency TCP RESP Client
-- Built strictly on Node's native `net.Socket` module (no heavy third-party Redis driver).
-- Maintains a FIFO request-response promise queue matching Redis's single-threaded command serialization.
-- Streaming zero-copy RESP frame decoder handles packet boundaries, fragmentations, and command pipelining.
-- Implements an exponential backoff auto-reconnection loop: immediately marks state as `offline` upon socket drop, and auto-resumes telemetry broadcasting once MiniRedis restarts.
+1. **Zero-Dependency Node.js Bridge**: Built using native `net.Socket`. Maintains an in-flight promise queue matching Redis's single-threaded command sequence.
+2. **Dynamic Mutation Invalidation**: When commands are executed in the web console, an immediate telemetry poll is dispatched to provide sub-10ms UI updates.
+3. **Pure SVG React Charts**: Real-time vector rendering of memory usage and operations per second without heavy charting library bloat.
+4. **Interactive LRU Visualizer**: Visual representation of the internal doubly linked list from MRU head to LRU tail with live updates.
 
-### 2. Live Telemetry & Event Streaming
-- **1-Second Polling Cycle**: Queries `INFO`, `LRUKEYS`, and `EVENTS 30` concurrently in a single event-loop tick.
-- **WebSocket Broadcast**: Pushes unified JSON payload `{ type: "TELEMETRY_UPDATE", online, metrics, lru_keys, events }` to all active browser clients.
-- **Dynamic Mutation Invalidation**: When writes/mutations are executed through the web console, an immediate telemetry poll is triggered to provide sub-10ms UI updates.
+---
 
-### 3. Interactive Component Architecture
-- **Live Memory & Ops/Sec Timeline**: Pure SVG vector renderer (`polyline` with gradient area polygon fill) avoiding external charting dependencies.
-- **LRU List Visualizer**: Visual representation of the in-memory doubly linked list (`head_` to `tail_`), labeling the MRU head and LRU eviction candidate. Updates live as keys are touched.
-- **Command Console**: Full REPL supporting command history navigation (Up/Down arrow keys), argument parsing with quotes, and error formatting.
+### Phase 8: Concurrency, Fuzzing & Security Hardening
 
-
+To guard against adversarial network streams, the RESP parser and network buffers enforce strict boundaries:
+- **Bulk String Cap**: Maximum 512 MB (`kMaxBulkStringLength = 512 * 1024 * 1024`). Reject negative lengths ($< -1$).
+- **Array Size Cap**: Maximum 1,000,000 elements (`kMaxArrayElements = 1024 * 1024`). Pre-allocation is clamped to `std::min(count, 1024)` to prevent speculative heap exhaustion.
+- **Recursion Ceiling**: Maximum 64 levels (`kMaxRecursionDepth = 64`) to protect against stack-overflow attacks.
+- **Client Buffer Ceiling**: Per-client buffer capped at 64 MB. Incomplete inline commands capped at 64 KB.
+- **Sanitizer Verification**: 100% clean under AddressSanitizer (ASan), UndefinedBehaviorSanitizer (UBSan), and ThreadSanitizer (TSan).
