@@ -152,13 +152,40 @@ def main():
         assert "ERR wrong number of arguments for 'get' command" in out or "ERR wrong number of arguments for 'get' command" in err, f"Wrong arg error missing: {out} {err}"
         print("  [PASS] Proper error reply: -ERR wrong number of arguments")
 
-        # 9. Pipelined commands via raw TCP socket
+        # 9. CONFIG GET / SET and MEMORY USAGE
+        out, _, _ = run_cli("CONFIG", "SET", "maxmemory", "1048576")
+        assert out == "OK", f"CONFIG SET maxmemory failed: {out}"
+        out, _, _ = run_cli("CONFIG", "GET", "maxmemory")
+        assert "1048576" in out, f"CONFIG GET maxmemory failed: {out}"
+
+        out, _, _ = run_cli("CONFIG", "SET", "maxmemory-policy", "allkeys-lru")
+        assert out == "OK", f"CONFIG SET maxmemory-policy failed: {out}"
+        out, _, _ = run_cli("CONFIG", "GET", "maxmemory-policy")
+        assert "allkeys-lru" in out, f"CONFIG GET maxmemory-policy failed: {out}"
+
+        run_cli("SET", "memkey", "samplevalue")
+        out, _, _ = run_cli("MEMORY", "USAGE", "memkey")
+        assert int(out.replace("(integer)", "").strip()) > 0, f"MEMORY USAGE failed: {out}"
+        print("  [PASS] redis-cli CONFIG SET/GET and MEMORY USAGE")
+
+        # 10. Memory limit and noeviction OOM
+        run_cli("CONFIG", "SET", "maxmemory-policy", "noeviction")
+        out, _, _ = run_cli("MEMORY", "USAGE", "memkey")
+        mem_bytes = int(out.replace("(integer)", "").strip())
+        run_cli("CONFIG", "SET", "maxmemory", str(mem_bytes))
+        out, err, _ = run_cli("SET", "memkey2", "overflow")
+        assert "OOM command not allowed" in out or "OOM command not allowed" in err, f"OOM error expected, got: {out} {err}"
+        # Reset memory limit to unlimited
+        run_cli("CONFIG", "SET", "maxmemory", "0")
+        print("  [PASS] Proper OOM reply under noeviction policy")
+
+        # 11. Pipelined commands via raw TCP socket
         test_raw_socket_pipeline()
 
-        # 10. Inline commands via raw TCP socket
+        # 12. Inline commands via raw TCP socket
         test_raw_socket_inline()
 
-        # 11. Graceful shutdown on SIGINT
+        # 13. Graceful shutdown on SIGINT
         print("  Testing graceful shutdown on SIGINT...")
         server_proc.send_signal(signal.SIGINT)
         server_proc.wait(timeout=3)

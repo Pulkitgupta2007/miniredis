@@ -9,10 +9,11 @@ An in-memory, single-threaded, event-driven key-value store built with modern C+
 - [x] **Phase 1: In-Memory Key-Value Core & Storage Engine** (Complete: 22/22 unit tests passing)
 - [x] **Phase 2: Networking + RESP2 Engine** (Complete: 32/32 unit tests passing + real `redis-cli` integration tests)
 - [x] **Phase 3: TTL / Expiry System** (Complete: 36/36 unit tests passing + zero-sleep mock clock tests)
-- [ ] **Phase 4: Additional Data Structures (Lists / Hashes / Sets)**
-- [ ] **Phase 5: Persistence (AOF / RDB Snapshotting)**
-- [ ] **Phase 6: Node.js Bridge & Real-Time React Dashboard**
-- [ ] **Phase 7: Benchmarks, Sanitizers & Docker / GitHub Actions CI**
+- [x] **Phase 4: Eviction Engine (LRU and LFU)** (Complete: 44/44 unit tests passing + property-based randomized verification)
+- [ ] **Phase 5: Additional Data Structures (Lists / Hashes / Sets)**
+- [ ] **Phase 6: Persistence (AOF / RDB Snapshotting)**
+- [ ] **Phase 7: Node.js Bridge & Real-Time React Dashboard**
+- [ ] **Phase 8: Benchmarks, Sanitizers & Docker / GitHub Actions CI**
 
 ---
 

@@ -94,8 +94,10 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
             }
         }
 
-        bool ok = store.set(key, val, ttl, cond);
-        if (ok) {
+        SetResult sr = store.set(key, val, ttl, cond);
+        if (sr.oom) {
+            cr.response = RespSerializer::serialize_error("OOM command not allowed when used memory > 'maxmemory'");
+        } else if (sr.ok) {
             cr.response = RespSerializer::serialize_simple_string("OK");
         } else {
             cr.response = RespSerializer::serialize_null();
@@ -224,15 +226,97 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         return cr;
     }
 
+    // Configuration & Memory commands
+    if (cmd == "CONFIG") {
+        if (args.size() < 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'config' command");
+            return cr;
+        }
+
+        std::string sub = to_upper(args[1]);
+        if (sub == "GET") {
+            if (args.size() != 3) {
+                cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'config|get' command");
+                return cr;
+            }
+            std::string param = args[2];
+            std::string param_upper = to_upper(param);
+            if (param_upper == "MAXMEMORY") {
+                cr.response = RespSerializer::serialize_array({"maxmemory", std::to_string(store.get_maxmemory())});
+            } else if (param_upper == "MAXMEMORY-POLICY") {
+                cr.response = RespSerializer::serialize_array({"maxmemory-policy", store.get_maxmemory_policy()});
+            } else {
+                cr.response = "*0\r\n";
+            }
+            return cr;
+        } else if (sub == "SET") {
+            if (args.size() != 4) {
+                cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'config|set' command");
+                return cr;
+            }
+            std::string param = to_upper(args[2]);
+            const std::string& val_str = args[3];
+            if (param == "MAXMEMORY") {
+                int64_t bytes = 0;
+                auto [ptr, ec] = std::from_chars(val_str.data(), val_str.data() + val_str.size(), bytes);
+                if (ec != std::errc() || ptr != val_str.data() + val_str.size() || bytes < 0) {
+                    cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+                    return cr;
+                }
+                store.set_maxmemory(static_cast<size_t>(bytes));
+                cr.response = RespSerializer::serialize_simple_string("OK");
+            } else if (param == "MAXMEMORY-POLICY") {
+                bool ok = store.set_maxmemory_policy(val_str);
+                if (ok) {
+                    cr.response = RespSerializer::serialize_simple_string("OK");
+                } else {
+                    cr.response = RespSerializer::serialize_error("ERR invalid maxmemory-policy. Options: noeviction, allkeys-lru, allkeys-lfu");
+                }
+            } else {
+                cr.response = RespSerializer::serialize_error("ERR Unsupported CONFIG parameter: " + args[2]);
+            }
+            return cr;
+        } else {
+            cr.response = RespSerializer::serialize_error("ERR unknown subcommand for 'config'");
+            return cr;
+        }
+    }
+
+    if (cmd == "MEMORY") {
+        if (args.size() < 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'memory' command");
+            return cr;
+        }
+        std::string sub = to_upper(args[1]);
+        if (sub == "USAGE") {
+            if (args.size() != 3) {
+                cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'memory|usage' command");
+                return cr;
+            }
+            auto mem = store.memory_usage(args[2]);
+            if (mem.has_value()) {
+                cr.response = RespSerializer::serialize_integer(static_cast<int64_t>(*mem));
+            } else {
+                cr.response = RespSerializer::serialize_null();
+            }
+            return cr;
+        }
+        cr.response = RespSerializer::serialize_error("ERR unknown subcommand for 'memory'");
+        return cr;
+    }
+
     // Compatibility commands for real redis-cli
     if (cmd == "COMMAND") {
-        // Return empty array so redis-cli handshake succeeds without error
         cr.response = "*0\r\n";
         return cr;
     }
 
     if (cmd == "INFO") {
-        std::string info = "# Server\r\nredis_version:miniredis-1.0.0\r\nos:macOS/Linux\r\ntcp_port:6379\r\n";
+        std::string info = "# Server\r\nredis_version:miniredis-1.0.0\r\n";
+        info += "# Memory\r\nused_memory:" + std::to_string(store.used_memory()) + "\r\n";
+        info += "maxmemory:" + std::to_string(store.get_maxmemory()) + "\r\n";
+        info += "maxmemory_policy:" + store.get_maxmemory_policy() + "\r\n";
+        info += "total_evictions:" + std::to_string(store.eviction_buffer().total_evictions()) + "\r\n";
         cr.response = RespSerializer::serialize_bulk_string(info);
         return cr;
     }

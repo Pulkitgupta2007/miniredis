@@ -8,7 +8,6 @@ namespace miniredis {
 
 namespace {
 
-// Glob pattern matcher supporting '*' (zero or more chars) and '?' (any single char)
 bool match_pattern(std::string_view str, std::string_view pattern) {
     size_t s = 0, p = 0;
     size_t star_p = std::string_view::npos;
@@ -46,6 +45,11 @@ Store::TimePoint Store::current_time() const {
         return clock_fn_();
     }
     return std::chrono::steady_clock::now();
+}
+
+int64_t Store::current_time_ms() const {
+    auto diff = current_time().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
 }
 
 bool Store::is_expired(const Entry& entry) const {
@@ -86,7 +90,16 @@ bool Store::check_and_expire(const std::string& key) {
     }
 
     if (is_expired(it->second)) {
+        size_t mem = estimate_memory(key, it->second.value);
+        if (used_memory_ >= mem) {
+            used_memory_ -= mem;
+        } else {
+            used_memory_ = 0;
+        }
+
         remove_expiry(key);
+        lru_tracker_.remove(key);
+        lfu_tracker_.remove(key);
         data_.erase(it);
         return true;
     }
@@ -94,42 +107,107 @@ bool Store::check_and_expire(const std::string& key) {
     return false;
 }
 
-bool Store::set(const std::string& key,
-                std::string value,
-                std::optional<std::chrono::milliseconds> ttl,
-                SetCondition cond) {
-    // Lazy expiration check first
+bool Store::evict_keys_if_needed(size_t needed_bytes) {
+    if (maxmemory_ == 0) {
+        return true;
+    }
+
+    while (used_memory_ + needed_bytes > maxmemory_ && !data_.empty()) {
+        if (eviction_policy_ == EvictionPolicy::NOEVICTION) {
+            return false; // Cannot evict under noeviction
+        }
+
+        std::optional<std::string> victim;
+        if (eviction_policy_ == EvictionPolicy::ALLKEYS_LRU) {
+            victim = lru_tracker_.pop_lru();
+        } else if (eviction_policy_ == EvictionPolicy::ALLKEYS_LFU) {
+            victim = lfu_tracker_.pop_lfu();
+        }
+
+        if (!victim.has_value()) {
+            return false;
+        }
+
+        auto it = data_.find(*victim);
+        if (it != data_.end()) {
+            size_t freed = estimate_memory(*victim, it->second.value);
+            if (used_memory_ >= freed) {
+                used_memory_ -= freed;
+            } else {
+                used_memory_ = 0;
+            }
+
+            remove_expiry(*victim);
+            if (eviction_policy_ == EvictionPolicy::ALLKEYS_LRU) {
+                lfu_tracker_.remove(*victim);
+            } else {
+                lru_tracker_.remove(*victim);
+            }
+
+            data_.erase(it);
+            eviction_buffer_.push(EvictionEvent{*victim, get_maxmemory_policy(), current_time_ms(), freed});
+        }
+    }
+
+    return (used_memory_ + needed_bytes <= maxmemory_);
+}
+
+SetResult Store::set(const std::string& key,
+                     std::string value,
+                     std::optional<std::chrono::milliseconds> ttl,
+                     SetCondition cond) {
     check_and_expire(key);
 
     const bool key_exists = (data_.find(key) != data_.end());
     if (cond == SetCondition::NX && key_exists) {
-        return false;
+        return SetResult{false, false};
     }
     if (cond == SetCondition::XX && !key_exists) {
-        return false;
+        return SetResult{false, false};
     }
 
-    // Negative or zero TTL: immediate expiration/deletion per Redis spec
+    // Negative/zero TTL: immediate deletion per Redis spec
     if (ttl.has_value() && ttl->count() <= 0) {
         del(key);
-        return true;
+        return SetResult{true, false};
     }
+
+    size_t new_mem = estimate_memory(key, value);
+    size_t old_mem = 0;
+    auto existing_it = data_.find(key);
+    if (existing_it != data_.end()) {
+        old_mem = estimate_memory(key, existing_it->second.value);
+    }
+
+    size_t delta = (new_mem > old_mem) ? (new_mem - old_mem) : 0;
+    if (!evict_keys_if_needed(delta)) {
+        return SetResult{false, true}; // OOM error!
+    }
+
+    // Update memory accounting
+    if (new_mem >= old_mem) {
+        used_memory_ += (new_mem - old_mem);
+    } else {
+        used_memory_ -= (old_mem - new_mem);
+    }
+
+    // Update LRU and LFU trackers
+    lru_tracker_.add(key);
+    lfu_tracker_.add(key);
 
     std::optional<TimePoint> expires_at = std::nullopt;
     if (ttl.has_value()) {
         expires_at = current_time() + *ttl;
         add_or_update_expiry(key, *expires_at);
     } else {
-        // Overwriting a key without TTL clears prior expiration
         remove_expiry(key);
     }
 
     data_[key] = Entry{std::move(value), expires_at};
-    return true;
+    return SetResult{true, false};
 }
 
 std::optional<std::string> Store::get(const std::string& key) {
-    // Lazy expiration on access
     if (check_and_expire(key)) {
         return std::nullopt;
     }
@@ -138,6 +216,10 @@ std::optional<std::string> Store::get(const std::string& key) {
     if (it == data_.end()) {
         return std::nullopt;
     }
+
+    // Touch access order on read
+    lru_tracker_.touch(key);
+    lfu_tracker_.touch(key);
 
     return it->second.value;
 }
@@ -150,7 +232,16 @@ bool Store::del(const std::string& key) {
         return false;
     }
 
+    size_t mem = estimate_memory(key, it->second.value);
+    if (used_memory_ >= mem) {
+        used_memory_ -= mem;
+    } else {
+        used_memory_ = 0;
+    }
+
     remove_expiry(key);
+    lru_tracker_.remove(key);
+    lfu_tracker_.remove(key);
     data_.erase(it);
     return true;
 }
@@ -166,11 +257,15 @@ size_t Store::del(const std::vector<std::string>& keys) {
 }
 
 bool Store::exists(const std::string& key) {
-    // Lazy expiration on access
     if (check_and_expire(key)) {
         return false;
     }
-    return data_.find(key) != data_.end();
+    bool found = (data_.find(key) != data_.end());
+    if (found) {
+        lru_tracker_.touch(key);
+        lfu_tracker_.touch(key);
+    }
+    return found;
 }
 
 size_t Store::exists(const std::vector<std::string>& keys) {
@@ -183,12 +278,71 @@ size_t Store::exists(const std::vector<std::string>& keys) {
     return count;
 }
 
+bool Store::set_maxmemory(size_t bytes) {
+    maxmemory_ = bytes;
+    if (maxmemory_ > 0 && used_memory_ > maxmemory_) {
+        evict_keys_if_needed(0);
+    }
+    return true;
+}
+
+size_t Store::get_maxmemory() const noexcept {
+    return maxmemory_;
+}
+
+bool Store::set_maxmemory_policy(std::string_view policy_str) {
+    if (policy_str == "noeviction") {
+        eviction_policy_ = EvictionPolicy::NOEVICTION;
+    } else if (policy_str == "allkeys-lru") {
+        eviction_policy_ = EvictionPolicy::ALLKEYS_LRU;
+    } else if (policy_str == "allkeys-lfu") {
+        eviction_policy_ = EvictionPolicy::ALLKEYS_LFU;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+std::string Store::get_maxmemory_policy() const {
+    switch (eviction_policy_) {
+        case EvictionPolicy::NOEVICTION:
+            return "noeviction";
+        case EvictionPolicy::ALLKEYS_LRU:
+            return "allkeys-lru";
+        case EvictionPolicy::ALLKEYS_LFU:
+            return "allkeys-lfu";
+    }
+    return "noeviction";
+}
+
+EvictionPolicy Store::get_eviction_policy_enum() const noexcept {
+    return eviction_policy_;
+}
+
+size_t Store::used_memory() const noexcept {
+    return used_memory_;
+}
+
+std::optional<size_t> Store::memory_usage(const std::string& key) {
+    if (check_and_expire(key)) {
+        return std::nullopt;
+    }
+    auto it = data_.find(key);
+    if (it == data_.end()) {
+        return std::nullopt;
+    }
+    return estimate_memory(key, it->second.value);
+}
+
+const EvictionRingBuffer& Store::eviction_buffer() const noexcept {
+    return eviction_buffer_;
+}
+
 int64_t Store::ttl(const std::string& key) {
     int64_t ms = pttl(key);
     if (ms < 0) {
-        return ms; // -1 or -2
+        return ms;
     }
-    // Round to seconds
     return (ms + 500) / 1000;
 }
 
@@ -267,7 +421,6 @@ ActiveExpireStats Store::active_expire_cycle(size_t sample_size, std::chrono::mi
         size_t current_sample_size = std::min(sample_size, expiry_keys_.size());
         size_t expired_in_iteration = 0;
 
-        // Collect sample_size random keys without replacement
         std::vector<std::string> sample;
         sample.reserve(current_sample_size);
 
@@ -284,27 +437,35 @@ ActiveExpireStats Store::active_expire_cycle(size_t sample_size, std::chrono::mi
             }
         }
 
-        // Purge expired keys found in the random sample
         for (const auto& key : sample) {
             stats.sampled_keys++;
             auto it = data_.find(key);
             if (it != data_.end() && is_expired(it->second)) {
+                size_t mem = estimate_memory(key, it->second.value);
+                if (used_memory_ >= mem) {
+                    used_memory_ -= mem;
+                } else {
+                    used_memory_ = 0;
+                }
+
                 remove_expiry(key);
+                lru_tracker_.remove(key);
+                lfu_tracker_.remove(key);
                 data_.erase(it);
                 ++stats.purged_keys;
                 ++expired_in_iteration;
             } else if (it == data_.end()) {
                 remove_expiry(key);
+                lru_tracker_.remove(key);
+                lfu_tracker_.remove(key);
             }
         }
 
-        // Check elapsed time against time budget
         if (current_time() - start_time >= time_budget) {
             stats.timelimit_reached = true;
             break;
         }
 
-        // If <= 25% of sampled keys were expired, stop cycle (Redis adaptive threshold)
         if (expired_in_iteration * 4 <= current_sample_size) {
             break;
         }
@@ -322,6 +483,10 @@ void Store::flushdb() {
     expires_.clear();
     expiry_keys_.clear();
     expiry_index_.clear();
+    lru_tracker_.clear();
+    lfu_tracker_.clear();
+    eviction_buffer_.clear();
+    used_memory_ = 0;
 }
 
 void Store::flushall() {
@@ -340,7 +505,15 @@ std::vector<std::string> Store::keys(std::string_view pattern) {
     auto it = data_.begin();
     while (it != data_.end()) {
         if (is_expired(it->second)) {
+            size_t mem = estimate_memory(it->first, it->second.value);
+            if (used_memory_ >= mem) {
+                used_memory_ -= mem;
+            } else {
+                used_memory_ = 0;
+            }
             remove_expiry(it->first);
+            lru_tracker_.remove(it->first);
+            lfu_tracker_.remove(it->first);
             it = data_.erase(it);
         } else {
             if (pattern == "*" || match_pattern(it->first, pattern)) {

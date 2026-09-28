@@ -4,7 +4,7 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(MiniRedis VERSION 0.2.0 LANGUAGES CXX)
+project(MiniRedis VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,7 +44,7 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-# Unit tests: Store
+# Unit tests: Store & Expiry
 add_executable(store_test
     tests/store_test.cpp
 )
@@ -56,6 +56,13 @@ add_executable(resp_test
 )
 target_link_libraries(resp_test PRIVATE miniredis_core GTest::gtest_main)
 
+# Unit tests: Eviction (LRU & LFU)
+add_executable(eviction_test
+    tests/eviction_test.cpp
+)
+target_link_libraries(eviction_test PRIVATE miniredis_core GTest::gtest_main)
+
 include(GoogleTest)
 gtest_discover_tests(store_test)
 gtest_discover_tests(resp_test)
+gtest_discover_tests(eviction_test)

@@ -87,7 +87,54 @@ Redis employs a hybrid strategy to balance CPU cycles and memory usage:
      - If the proportion of expired keys in the sample exceeds **25%**, the cycle repeats immediately to accelerate memory recovery.
      - If elapsed execution time exceeds `time_budget` (default 25ms), the cycle halts immediately (`timelimit_reached = true`) to prevent event loop latency spikes.
 
-### 4. Monotonic Clocks and Zero-Sleep Deterministic Testing
-- Wall-clock time (`system_clock`) is susceptible to NTP sync adjustments, leap seconds, and daylight saving shifts.
-- MiniRedis uses `std::chrono::steady_clock` internally to ensure strictly monotonic intervals.
-- The `Store` constructor accepts an injectable `ClockFn`, decoupling time from system state and enabling instant, 100% deterministic unit tests without `sleep()` overhead.
+### 5. Memory Accounting & Eviction Engine (LRU and LFU)
+
+MiniRedis implements strict memory accounting and pluggable eviction policies configurable via `CONFIG SET maxmemory` and `CONFIG SET maxmemory-policy`:
+
+```
++-----------------------------------------------------------+
+|               Write Command Execution (SET)               |
++-----------------------------------------------------------+
+                              |
+                     Estimate Memory Delta
+                              |
+                              v
+        +-------------------------------------------+
+        |  used_memory + delta > maxmemory ?        |
+        +-------------------------------------------+
+               |                             |
+              YES                            NO
+               |                             |
+      Check Policy                           v
+        /        \                   Commit Write to Store
+       /          \                  Update LRU & LFU Trackers
+      v            v
+[noeviction]   [allkeys-lru / allkeys-lfu]
+      |                    |
+Return -OOM         Eviction Loop:
+                    - Pop victim key in O(1)
+                    - Free memory
+                    - Record to EvictionRingBuffer
+```
+
+#### A. Custom $\mathcal{O}(1)$ LRU Tracker
+- **Data Structures**: `std::unordered_map<std::string, Node*>` paired with a doubly linked list with sentinel `head` (MRU) and `tail` (LRU) nodes.
+- **Operations**:
+  - `add(key)`: Inserts at head in $\mathcal{O}(1)$.
+  - `touch(key)`: Splices node from its current position to the head in $\mathcal{O}(1)$.
+  - `pop_lru()`: Detaches `tail->prev` in $\mathcal{O}(1)$.
+
+#### B. Custom $\mathcal{O}(1)$ LFU Tracker
+- **Data Structures**:
+  - `key_map_`: `std::unordered_map<std::string, Node*>` tracking node references.
+  - `freq_buckets_`: `std::unordered_map<size_t, FreqBucket*>` mapping access count $\to$ Doubly Linked List of keys.
+  - `min_freq_`: Tracks current global minimum frequency.
+- **Operations**:
+  - `add(key)`: Inserts key with frequency 1 at head of `freq_buckets_[1]`; sets `min_freq_ = 1` ($\mathcal{O}(1)$).
+  - `touch(key)`: Detaches node from `freq_buckets_[old_freq]`; increments `min_freq_` if old bucket is now empty; attaches to head of `freq_buckets_[old_freq + 1]` ($\mathcal{O}(1)$).
+  - `pop_lfu()`: Pops from `tail` of `freq_buckets_[min_freq_]` ($\mathcal{O}(1)$).
+  - **Tie-Breaking**: Within the same frequency bucket, keys are arranged in MRU-to-LRU order. Evicting from `tail` guarantees that the least recently accessed key among those with the minimum frequency is chosen.
+
+#### C. In-Memory Eviction Ring Buffer
+- Fixed-capacity circular array of `EvictionEvent` structs (`key`, `policy`, `timestamp_ms`, `freed_bytes`).
+- Non-allocating after initialization; stores the last $N$ evictions for real-time telemetry streaming to the Node.js bridge and React dashboard.

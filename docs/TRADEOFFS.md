@@ -44,8 +44,24 @@ For Phase 1, `Store` wraps `std::unordered_map` to maintain a robust, leak-free 
     - **Cache Locality**: Expiry keys are packed contiguously in memory.
   - *Cons*: Consumes an additional hash map entry (`expiry_index_`) per expiring key.
 
+---
+
+## 5. Eviction Implementation: Exact $\mathcal{O}(1)$ LRU/LFU vs. Redis Approximated Sampling
+
+- **Option A (Redis Approximated LRU/LFU)**:
+  Redis does not maintain a doubly linked list or frequency buckets. Instead, every Redis object stores a 24-bit timestamp/counter in `robj::lru`. When memory is full, Redis samples 5 keys at random and evicts the one with the oldest access time / lowest frequency counter.
+  - *Pros*: Saves 16 to 24 bytes of pointer overhead per key across millions of entries.
+  - *Cons*: Eviction is not mathematically exact. Hot keys can rarely be evicted if they happen to be in an unluckily sampled batch; access sequences are not strictly deterministic.
+- **Option B (Exact $\mathcal{O}(1)$ Doubly-Linked LRU & Frequency-Bucket LFU - MiniRedis Implementation)**:
+  Maintains explicit hash maps and doubly linked list nodes for LRU, and frequency buckets with a `min_freq` pointer for LFU.
+  - *Pros*:
+    - Strictly deterministic eviction order matching classical cache algorithm proofs.
+    - True $\mathcal{O}(1)$ worst-case time for insertions, hits, and evictions.
+    - Direct interview explainability (classic LeetCode 146 LRU & 460 LFU systems patterns).
+  - *Cons*: Node pointers require extra heap memory per tracked key.
+
 ### Decision
-MiniRedis implements Option C. It provides strictly bounded, predictable sampling latency for the active expiration cycle while keeping all TTL operations (`SET EX`, `EXPIRE`, `PERSIST`, `DEL`) strictly $\mathcal{O}(1)$.
+MiniRedis implements Option B. For an educational systems engineering project, deterministic correctness and verifiable property tests against reference implementations outweigh the marginal memory savings of approximated sampling.
 
 ---
 

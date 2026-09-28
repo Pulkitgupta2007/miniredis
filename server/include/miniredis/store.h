@@ -1,5 +1,9 @@
 #pragma once
 
+#include "miniredis/eviction_ring_buffer.h"
+#include "miniredis/lfu_tracker.h"
+#include "miniredis/lru_tracker.h"
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -17,6 +21,21 @@ enum class SetCondition {
     XX    // Set only if key ALREADY exists
 };
 
+enum class EvictionPolicy {
+    NOEVICTION,
+    ALLKEYS_LRU,
+    ALLKEYS_LFU
+};
+
+struct SetResult {
+    bool ok{false};
+    bool oom{false};
+
+    operator bool() const noexcept {
+        return ok;
+    }
+};
+
 struct ActiveExpireStats {
     size_t sampled_keys{0};
     size_t purged_keys{0};
@@ -29,14 +48,13 @@ public:
     using TimePoint = std::chrono::steady_clock::time_point;
     using ClockFn = std::function<TimePoint()>;
 
-    // Inject custom clock function for deterministic tests; defaults to steady_clock::now
     explicit Store(ClockFn clock_fn = nullptr);
 
     // Core Key-Value Operations
-    bool set(const std::string& key,
-             std::string value,
-             std::optional<std::chrono::milliseconds> ttl = std::nullopt,
-             SetCondition cond = SetCondition::NONE);
+    SetResult set(const std::string& key,
+                  std::string value,
+                  std::optional<std::chrono::milliseconds> ttl = std::nullopt,
+                  SetCondition cond = SetCondition::NONE);
 
     std::optional<std::string> get(const std::string& key);
 
@@ -46,11 +64,19 @@ public:
     bool exists(const std::string& key);
     size_t exists(const std::vector<std::string>& keys);
 
+    // Memory & Eviction Management
+    bool set_maxmemory(size_t bytes);
+    size_t get_maxmemory() const noexcept;
+
+    bool set_maxmemory_policy(std::string_view policy_str);
+    std::string get_maxmemory_policy() const;
+    EvictionPolicy get_eviction_policy_enum() const noexcept;
+
+    size_t used_memory() const noexcept;
+    std::optional<size_t> memory_usage(const std::string& key);
+    const EvictionRingBuffer& eviction_buffer() const noexcept;
+
     // TTL Operations
-    // Returns:
-    //  -2 if key does not exist or has expired
-    //  -1 if key exists but has no expiration
-    //  >= 0 remaining time (seconds for ttl, milliseconds for pttl)
     int64_t ttl(const std::string& key);
     int64_t pttl(const std::string& key);
 
@@ -58,9 +84,6 @@ public:
     bool pexpire(const std::string& key, std::chrono::milliseconds ms);
     bool persist(const std::string& key);
 
-    // Active Expiration Cycle
-    // Samples random keys with TTL (not a full scan), repeating if > 25% of sample is expired,
-    // bounded by a per-cycle time budget and maximum iteration ceiling.
     ActiveExpireStats active_expire_cycle(
         size_t sample_size = 20,
         std::chrono::milliseconds time_budget = std::chrono::milliseconds(25));
@@ -79,24 +102,36 @@ private:
         std::optional<TimePoint> expires_at;
     };
 
+    static constexpr size_t kEntryOverhead = 64; // Per-entry overhead for hash node and pointers
+    static size_t estimate_memory(std::string_view key, std::string_view value) noexcept {
+        return key.size() + value.size() + kEntryOverhead;
+    }
+
     TimePoint current_time() const;
+    int64_t current_time_ms() const;
     bool is_expired(const Entry& entry) const;
     bool check_and_expire(const std::string& key);
 
-    // Swap-and-pop expiry tracking for O(1) insertion, deletion, and random sampling
     void add_or_update_expiry(const std::string& key, TimePoint exp);
     void remove_expiry(const std::string& key);
+    bool evict_keys_if_needed(size_t needed_bytes);
 
     ClockFn clock_fn_;
     std::unordered_map<std::string, Entry> data_;
 
-    // Expiry tracking structures:
-    // 1. Map of key -> expiration TimePoint
-    // 2. Contiguous array of expiring keys for uniform O(1) random sampling
-    // 3. Reverse index map of key -> position in expiry_keys_ for O(1) swap-and-pop removal
+    // Expiry tracking
     std::unordered_map<std::string, TimePoint> expires_;
     std::vector<std::string> expiry_keys_;
     std::unordered_map<std::string, size_t> expiry_index_;
+
+    // Memory & Eviction structures
+    size_t maxmemory_{0}; // 0 = no limit
+    size_t used_memory_{0};
+    EvictionPolicy eviction_policy_{EvictionPolicy::NOEVICTION};
+
+    LruTracker lru_tracker_;
+    LfuTracker lfu_tracker_;
+    EvictionRingBuffer eviction_buffer_{256};
 };
 
 } // namespace miniredis
