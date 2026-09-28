@@ -267,7 +267,7 @@ void Server::handle_client_read(int fd) {
             }
         }
 
-        auto cmd_res = CommandDispatcher::execute(args, store_);
+        auto cmd_res = CommandDispatcher::execute(args, store_, clients_.size());
         client.out_buf += cmd_res.response;
         if (cmd_res.should_close) {
             client.should_close = true;

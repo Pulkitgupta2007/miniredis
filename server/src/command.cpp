@@ -16,13 +16,14 @@ std::string CommandDispatcher::to_upper(std::string_view s) {
     return out;
 }
 
-CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, Store& store) {
+CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, Store& store, size_t connected_clients) {
     CommandResult cr;
     if (args.empty()) {
         cr.response = RespSerializer::serialize_error("ERR empty command");
         return cr;
     }
 
+    store.metrics().record_command();
     std::string cmd = to_upper(args[0]);
 
     if (cmd == "PING") {
@@ -332,6 +333,37 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         return cr;
     }
 
+    if (cmd == "EVENTS") {
+        size_t limit = 20;
+        if (args.size() == 2) {
+            int64_t val = 0;
+            auto [ptr, ec] = std::from_chars(args[1].data(), args[1].data() + args[1].size(), val);
+            if (ec == std::errc() && ptr == args[1].data() + args[1].size() && val > 0) {
+                limit = static_cast<size_t>(val);
+            }
+        } else if (args.size() == 3 && to_upper(args[1]) == "LIMIT") {
+            int64_t val = 0;
+            auto [ptr, ec] = std::from_chars(args[2].data(), args[2].data() + args[2].size(), val);
+            if (ec == std::errc() && ptr == args[2].data() + args[2].size() && val > 0) {
+                limit = static_cast<size_t>(val);
+            }
+        }
+
+        auto recent = store.telemetry_buffer().get_recent(limit);
+        std::vector<std::string> formatted_events;
+        formatted_events.reserve(recent.size());
+        for (const auto& ev : recent) {
+            formatted_events.push_back(ev.format());
+        }
+        cr.response = RespSerializer::serialize_array(formatted_events);
+        return cr;
+    }
+
+    if (cmd == "MONITOR") {
+        cr.response = RespSerializer::serialize_simple_string("OK");
+        return cr;
+    }
+
     // Compatibility commands for real redis-cli
     if (cmd == "COMMAND") {
         cr.response = "*0\r\n";
@@ -339,12 +371,36 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
     }
 
     if (cmd == "INFO") {
-        std::string info = "# Server\r\nredis_version:miniredis-1.0.0\r\n";
-        info += "# Memory\r\nused_memory:" + std::to_string(store.used_memory()) + "\r\n";
-        info += "maxmemory:" + std::to_string(store.get_maxmemory()) + "\r\n";
-        info += "maxmemory_policy:" + store.get_maxmemory_policy() + "\r\n";
-        info += "total_evictions:" + std::to_string(store.eviction_buffer().total_evictions()) + "\r\n";
-        cr.response = RespSerializer::serialize_bulk_string(info);
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(2);
+
+        int64_t uptime_sec = store.metrics().uptime_seconds();
+        int64_t uptime_days = uptime_sec / 86400;
+
+        oss << "# Server\r\n";
+        oss << "redis_version:miniredis-1.0.0\r\n";
+        oss << "uptime_in_seconds:" << uptime_sec << "\r\n";
+        oss << "uptime_in_days:" << uptime_days << "\r\n";
+        oss << "connected_clients:" << connected_clients << "\r\n";
+        oss << "\r\n";
+
+        oss << "# Memory\r\n";
+        oss << "used_memory:" << store.used_memory() << "\r\n";
+        oss << "maxmemory:" << store.get_maxmemory() << "\r\n";
+        oss << "maxmemory_policy:" << store.get_maxmemory_policy() << "\r\n";
+        oss << "\r\n";
+
+        oss << "# Stats\r\n";
+        oss << "total_commands_processed:" << store.metrics().total_commands_processed() << "\r\n";
+        oss << "ops_per_sec:" << store.metrics().ops_per_sec() << "\r\n";
+        oss << "keyspace_hits:" << store.metrics().keyspace_hits() << "\r\n";
+        oss << "keyspace_misses:" << store.metrics().keyspace_misses() << "\r\n";
+        oss << "hit_ratio:" << store.metrics().hit_ratio() << "\r\n";
+        oss << "evicted_keys:" << store.eviction_buffer().total_evictions() << "\r\n";
+        oss << "expired_keys:" << store.metrics().expired_keys() << "\r\n";
+        oss << "total_keys:" << store.dbsize() << "\r\n";
+
+        cr.response = RespSerializer::serialize_bulk_string(oss.str());
         return cr;
     }
 

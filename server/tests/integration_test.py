@@ -179,6 +179,16 @@ def main():
         run_cli("CONFIG", "SET", "maxmemory", "0")
         print("  [PASS] Proper OOM reply under noeviction policy")
 
+        # 11. INFO command with all observability fields
+        info_out, _, _ = run_cli("INFO")
+        for expected_field in [
+            "used_memory:", "total_keys:", "keyspace_hits:", "keyspace_misses:",
+            "hit_ratio:", "evicted_keys:", "expired_keys:", "connected_clients:",
+            "total_commands_processed:", "ops_per_sec:", "uptime_in_seconds:"
+        ]:
+            assert expected_field in info_out, f"Missing field in INFO output: {expected_field}\nOutput:\n{info_out}"
+        print("  [PASS] redis-cli INFO contains all required observability fields")
+
         # 11. Pipelined commands via raw TCP socket
         test_raw_socket_pipeline()
 

@@ -97,6 +97,9 @@ bool Store::check_and_expire(const std::string& key) {
             used_memory_ = 0;
         }
 
+        metrics_.record_expired(1);
+        telemetry_buffer_.push(TelemetryEvent{current_time_ms(), TelemetryEventType::EXPIRATION, key, "ttl_expired"});
+
         remove_expiry(key);
         lru_tracker_.remove(key);
         lfu_tracker_.remove(key);
@@ -145,7 +148,9 @@ bool Store::evict_keys_if_needed(size_t needed_bytes) {
             }
 
             data_.erase(it);
-            eviction_buffer_.push(EvictionEvent{*victim, get_maxmemory_policy(), current_time_ms(), freed});
+            auto ev = EvictionEvent{*victim, get_maxmemory_policy(), current_time_ms(), freed};
+            eviction_buffer_.push(ev);
+            telemetry_buffer_.push(TelemetryEvent{current_time_ms(), TelemetryEventType::EVICTION, *victim, "freed=" + std::to_string(freed)});
         }
     }
 
@@ -209,15 +214,17 @@ SetResult Store::set(const std::string& key,
 
 std::optional<std::string> Store::get(const std::string& key) {
     if (check_and_expire(key)) {
+        metrics_.record_miss();
         return std::nullopt;
     }
 
     auto it = data_.find(key);
     if (it == data_.end()) {
+        metrics_.record_miss();
         return std::nullopt;
     }
 
-    // Touch access order on read
+    metrics_.record_hit();
     lru_tracker_.touch(key);
     lfu_tracker_.touch(key);
 
@@ -258,12 +265,16 @@ size_t Store::del(const std::vector<std::string>& keys) {
 
 bool Store::exists(const std::string& key) {
     if (check_and_expire(key)) {
+        metrics_.record_miss();
         return false;
     }
     bool found = (data_.find(key) != data_.end());
     if (found) {
+        metrics_.record_hit();
         lru_tracker_.touch(key);
         lfu_tracker_.touch(key);
+    } else {
+        metrics_.record_miss();
     }
     return found;
 }
@@ -470,6 +481,9 @@ ActiveExpireStats Store::active_expire_cycle(size_t sample_size, std::chrono::mi
                     used_memory_ = 0;
                 }
 
+                metrics_.record_expired(1);
+                telemetry_buffer_.push(TelemetryEvent{current_time_ms(), TelemetryEventType::EXPIRATION, key, "active_cycle"});
+
                 remove_expiry(key);
                 lru_tracker_.remove(key);
                 lfu_tracker_.remove(key);
@@ -508,6 +522,8 @@ void Store::flushdb() {
     lru_tracker_.clear();
     lfu_tracker_.clear();
     eviction_buffer_.clear();
+    telemetry_buffer_.clear();
+    metrics_.reset();
     used_memory_ = 0;
 }
 

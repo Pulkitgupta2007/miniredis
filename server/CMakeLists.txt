@@ -4,7 +4,7 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(MiniRedis VERSION 0.4.0 LANGUAGES CXX)
+project(MiniRedis VERSION 0.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -69,8 +69,15 @@ add_executable(aof_test
 )
 target_link_libraries(aof_test PRIVATE miniredis_core GTest::gtest_main)
 
+# Unit tests: Observability & Metrics
+add_executable(observability_test
+    tests/observability_test.cpp
+)
+target_link_libraries(observability_test PRIVATE miniredis_core GTest::gtest_main)
+
 include(GoogleTest)
 gtest_discover_tests(store_test)
 gtest_discover_tests(resp_test)
 gtest_discover_tests(eviction_test)
 gtest_discover_tests(aof_test)
+gtest_discover_tests(observability_test)

@@ -3,6 +3,7 @@
 #include "miniredis/eviction_ring_buffer.h"
 #include "miniredis/lfu_tracker.h"
 #include "miniredis/lru_tracker.h"
+#include "miniredis/telemetry.h"
 
 #include <chrono>
 #include <cstdint>
@@ -63,6 +64,13 @@ public:
 
     bool exists(const std::string& key);
     size_t exists(const std::vector<std::string>& keys);
+
+    // Observability & Telemetry
+    ServerMetrics& metrics() noexcept { return metrics_; }
+    const ServerMetrics& metrics() const noexcept { return metrics_; }
+
+    TelemetryRingBuffer& telemetry_buffer() noexcept { return telemetry_buffer_; }
+    const TelemetryRingBuffer& telemetry_buffer() const noexcept { return telemetry_buffer_; }
 
     // Memory & Eviction Management
     bool set_maxmemory(size_t bytes);
@@ -134,6 +142,8 @@ private:
     LruTracker lru_tracker_;
     LfuTracker lfu_tracker_;
     EvictionRingBuffer eviction_buffer_{256};
+    ServerMetrics metrics_;
+    TelemetryRingBuffer telemetry_buffer_{512};
 };
 
 } // namespace miniredis
