@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/pulkit/miniredis/server/build/_deps/googletest-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

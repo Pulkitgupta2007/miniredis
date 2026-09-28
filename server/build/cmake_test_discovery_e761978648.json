@@ -1,0 +1,82 @@
+{
+  "tests": 14,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "StoreTest",
+      "tests": 14,
+      "testsuite": [
+        {
+          "name": "BasicSetAndGet",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 23
+        },
+        {
+          "name": "OverwriteValue",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 35
+        },
+        {
+          "name": "SetWithConditions",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 45
+        },
+        {
+          "name": "DelSingleAndMultiple",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 62
+        },
+        {
+          "name": "ExistsSingleAndMultiple",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 80
+        },
+        {
+          "name": "TTLAndPTTLCalculations",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 92
+        },
+        {
+          "name": "PassiveExpiration",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 115
+        },
+        {
+          "name": "ExpireAndPexpire",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 130
+        },
+        {
+          "name": "PersistClearsTTL",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 148
+        },
+        {
+          "name": "OverwriteClearsPriorTTL",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 167
+        },
+        {
+          "name": "ZeroOrNegativeTTLDeletesKey",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 182
+        },
+        {
+          "name": "ActiveExpireCycle",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 195
+        },
+        {
+          "name": "DBSizeAndFlushDB",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 228
+        },
+        {
+          "name": "KeysPatternMatching",
+          "file": "\/Users\/pulkit\/miniredis\/server\/tests\/store_test.cpp",
+          "line": 242
+        }
+      ]
+    }
+  ]
+}

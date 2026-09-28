@@ -1,0 +1,2 @@
+/usr/bin/ar qc libminiredis_core.a CMakeFiles/miniredis_core.dir/src/store.cpp.o
+/usr/bin/ranlib libminiredis_core.a

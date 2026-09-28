@@ -1,0 +1,5 @@
+if(EXISTS "/Users/pulkit/miniredis/server/build/store_test_e3b0c442_tests.cmake")
+  include("/Users/pulkit/miniredis/server/build/store_test_e3b0c442_tests.cmake")
+else()
+  add_test(store_test_NOT_BUILT store_test_NOT_BUILT)
+endif()
