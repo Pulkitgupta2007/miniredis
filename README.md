@@ -13,7 +13,8 @@ An in-memory, single-threaded, event-driven key-value store built with modern C+
 - [x] **Phase 5: Persistence (AOF Engine)** (Complete: 49/49 unit tests passing + crash truncation recovery & atomic rewrite)
 - [x] **Phase 6: Observability (INFO & Telemetry)** (Complete: 55/55 unit tests passing + EVENTS stream)
 - [x] **Phase 7: Node.js Bridge & Real-Time React Dashboard** (Complete: 13/13 bridge tests + 9/9 React component tests)
-- [ ] **Phase 8: Benchmarks, Sanitizers & Docker / GitHub Actions CI**
+- [x] **Phase 8: Concurrency, Fuzzing & Sanitizers** (Complete: 59/59 unit tests passing + ASan/UBSan/TSan clean + 120-client stress test)
+- [x] **Phase 9: Performance Benchmarks vs. Real Redis** (Complete: redis-benchmark comparative suite + bottleneck analysis)
 
 ---
 
@@ -70,6 +71,9 @@ npm test
 # 4. React Dashboard Component Tests (9 Vitest component tests)
 cd dashboard
 npm test
+
+# 5. Comparative Performance Benchmarks (Real Redis vs MiniRedis)
+python3 bench/benchmark_comparison.py
 ```
 
 ---

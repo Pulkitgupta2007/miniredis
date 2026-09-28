@@ -273,6 +273,10 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
                 cr.response = RespSerializer::serialize_array({"maxmemory", std::to_string(store.get_maxmemory())});
             } else if (param_upper == "MAXMEMORY-POLICY") {
                 cr.response = RespSerializer::serialize_array({"maxmemory-policy", store.get_maxmemory_policy()});
+            } else if (param_upper == "SAVE") {
+                cr.response = RespSerializer::serialize_array({"save", ""});
+            } else if (param_upper == "APPENDONLY") {
+                cr.response = RespSerializer::serialize_array({"appendonly", "no"});
             } else {
                 cr.response = "*0\r\n";
             }
