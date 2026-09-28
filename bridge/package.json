@@ -1,0 +1,14 @@
+{
+  "name": "miniredis-bridge",
+  "version": "1.0.0",
+  "description": "MiniRedis Node.js telemetry bridge and command proxy",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {}
+}

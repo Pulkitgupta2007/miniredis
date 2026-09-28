@@ -243,3 +243,54 @@ Formatted as newline-delimited `field:value\r\n` lines organized into logical se
 - A fixed-capacity, non-blocking `TelemetryRingBuffer` records recent system events (`EVICTION`, `EXPIRATION`).
 - The `EVENTS [count]` command exports recent history formatted for ingestion by the upcoming Node.js WebSocket bridge and React visualization dashboard.
 
+---
+
+## 8. Node.js Bridge & Real-Time React Dashboard
+
+The monitoring stack bridges the low-level C++ TCP networking layer to a web-based real-time dashboard:
+
+```
++-----------------------------------------------------------+
+|                   MiniRedis C++ Server                    |
+|      (TCP Port 6379, RESP2 Protocol, epoll/kqueue)        |
++-----------------------------------------------------------+
+                              ^
+                              | Raw TCP Socket
+                              v
++-----------------------------------------------------------+
+|                    Node.js Bridge                         |
+|  - Custom non-blocking TCP RESP client                    |
+|  - Polling loop: INFO, LRUKEYS, EVENTS (1 Hz)             |
+|  - WebSocket Server (Port 4000)                           |
+|  - Bidirectional command proxy + offline state broadcast  |
++-----------------------------------------------------------+
+                              ^
+                              | WebSocket Protocol
+                              v
++-----------------------------------------------------------+
+|                   React Live Dashboard                    |
+|  - Real-time SVG Memory & Ops/sec timeline graph          |
+|  - Interactive MRU -> LRU Doubly Linked List Visualizer   |
+|  - Eviction & Expiration activity feed                    |
+|  - Interactive Web Command Console (SET/GET/DEL/TTL)      |
+|  - Reconnection state banner & server offline detection   |
++-----------------------------------------------------------+
+```
+
+### 1. Zero-Dependency TCP RESP Client
+- Built strictly on Node's native `net.Socket` module (no heavy third-party Redis driver).
+- Maintains a FIFO request-response promise queue matching Redis's single-threaded command serialization.
+- Streaming zero-copy RESP frame decoder handles packet boundaries, fragmentations, and command pipelining.
+- Implements an exponential backoff auto-reconnection loop: immediately marks state as `offline` upon socket drop, and auto-resumes telemetry broadcasting once MiniRedis restarts.
+
+### 2. Live Telemetry & Event Streaming
+- **1-Second Polling Cycle**: Queries `INFO`, `LRUKEYS`, and `EVENTS 30` concurrently in a single event-loop tick.
+- **WebSocket Broadcast**: Pushes unified JSON payload `{ type: "TELEMETRY_UPDATE", online, metrics, lru_keys, events }` to all active browser clients.
+- **Dynamic Mutation Invalidation**: When writes/mutations are executed through the web console, an immediate telemetry poll is triggered to provide sub-10ms UI updates.
+
+### 3. Interactive Component Architecture
+- **Live Memory & Ops/Sec Timeline**: Pure SVG vector renderer (`polyline` with gradient area polygon fill) avoiding external charting dependencies.
+- **LRU List Visualizer**: Visual representation of the in-memory doubly linked list (`head_` to `tail_`), labeling the MRU head and LRU eviction candidate. Updates live as keys are touched.
+- **Command Console**: Full REPL supporting command history navigation (Up/Down arrow keys), argument parsing with quotes, and error formatting.
+
+

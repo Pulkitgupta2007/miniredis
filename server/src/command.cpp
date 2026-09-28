@@ -364,6 +364,12 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         return cr;
     }
 
+    if (cmd == "LRUKEYS" || cmd == "LRU.KEYS") {
+        auto keys = store.lru_keys();
+        cr.response = RespSerializer::serialize_array(keys);
+        return cr;
+    }
+
     // Compatibility commands for real redis-cli
     if (cmd == "COMMAND") {
         cr.response = "*0\r\n";

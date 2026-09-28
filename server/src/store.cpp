@@ -349,6 +349,10 @@ const EvictionRingBuffer& Store::eviction_buffer() const noexcept {
     return eviction_buffer_;
 }
 
+std::vector<std::string> Store::lru_keys() const {
+    return lru_tracker_.get_keys_in_order();
+}
+
 int64_t Store::ttl(const std::string& key) {
     int64_t ms = pttl(key);
     if (ms < 0) {

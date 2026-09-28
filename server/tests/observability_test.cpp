@@ -173,3 +173,25 @@ TEST_F(ObservabilityTest, EventsCommandExposesTelemetry) {
     EXPECT_NE(ev_res.response.find("EVICTION"), std::string::npos);
     EXPECT_NE(ev_res.response.find("a"), std::string::npos);
 }
+
+// -------------------------------------------------------------
+// 6. LRUKEYS Command Order Tracking
+// -------------------------------------------------------------
+TEST_F(ObservabilityTest, LruKeysOrderTracking) {
+    Store store = create_mocked_store();
+
+    CommandDispatcher::execute({"SET", "k1", "v1"}, store);
+    CommandDispatcher::execute({"SET", "k2", "v2"}, store);
+    CommandDispatcher::execute({"SET", "k3", "v3"}, store);
+
+    // Initial order: MRU k3 -> k2 -> k1 (LRU)
+    EXPECT_EQ(store.lru_keys(), (std::vector<std::string>{"k3", "k2", "k1"}));
+
+    // Touch k1 via GET -> k1 becomes MRU
+    CommandDispatcher::execute({"GET", "k1"}, store);
+    EXPECT_EQ(store.lru_keys(), (std::vector<std::string>{"k1", "k3", "k2"}));
+
+    // Verify response via LRUKEYS command
+    auto res = CommandDispatcher::execute({"LRUKEYS"}, store);
+    EXPECT_EQ(res.response, "*3\r\n$2\r\nk1\r\n$2\r\nk3\r\n$2\r\nk2\r\n");
+}

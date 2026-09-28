@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace miniredis {
 
@@ -81,6 +82,18 @@ public:
         map_.erase(key);
         delete lru_node;
         return key;
+    }
+
+    // Returns all keys in order from MRU (head) to LRU (tail)
+    std::vector<std::string> get_keys_in_order() const {
+        std::vector<std::string> res;
+        res.reserve(map_.size());
+        Node* curr = head_->next;
+        while (curr != tail_) {
+            res.push_back(curr->key);
+            curr = curr->next;
+        }
+        return res;
     }
 
     void clear() {
