@@ -6,22 +6,22 @@ An in-memory, single-threaded, event-driven key-value store built with modern C+
 
 ## Project Status & Phases
 
-- [x] **Phase 1: In-Memory Key-Value Core & TTL Engine** (Complete: 14/14 unit tests passing)
-- [ ] **Phase 2: RESP2 Protocol Streaming Parser & Serializer**
-- [ ] **Phase 3: Non-Blocking Event-Driven Network Engine (`epoll` / `kqueue`)**
-- [ ] **Phase 4: Command Dispatcher & `redis-cli` Compatibility**
-- [ ] **Phase 5: Advanced Data Structures & Memory Eviction**
-- [ ] **Phase 6: Node.js Bridge & Real-Time React Dashboard**
-- [ ] **Phase 7: Benchmarks, Sanitizers & Docker / GitHub Actions CI**
+- [x] **Phase 1: In-Memory Key-Value Core & TTL Engine** (Complete: 22/22 unit tests passing)
+- [x] **Phase 2: Networking + RESP2 Engine** (Complete: 32/32 unit tests passing + real `redis-cli` integration tests)
+- [ ] **Phase 3: Additional Data Structures & Memory Eviction**
+- [ ] **Phase 4: Persistence (AOF / RDB Snapshotting)**
+- [ ] **Phase 5: Node.js Bridge & Real-Time React Dashboard**
+- [ ] **Phase 6: Benchmarks, Sanitizers & Docker / GitHub Actions CI**
 
 ---
 
-## Phase 1 Quickstart
+## Quickstart
 
 ### Prerequisites
-- Modern C++17 compiler (`clang++` $\ge 10$ or `g++` $\ge 9$)
+- Modern C++17 compiler (`clang++` or `g++`)
 - CMake $\ge 3.14$
-- POSIX-compliant OS (Linux / Ubuntu / WSL / macOS)
+- Python 3 (for integration tests)
+- `redis-cli` (optional, for manual interactive CLI testing)
 
 ### Build Instructions
 ```bash
@@ -31,12 +31,20 @@ cmake ..
 cmake --build .
 ```
 
-### Running Tests
+### Running the Server
 ```bash
 cd server/build
-./store_test
-# Or via CTest
+./miniredis-server 6379 127.0.0.1
+```
+
+### Running Tests
+```bash
+# 1. GoogleTest Unit Tests (Store + RESP Parser)
+cd server/build
 ctest --output-on-failure
+
+# 2. Integration Test (Runs real redis-cli + raw TCP socket pipelines)
+python3 ../tests/integration_test.py
 ```
 
 ---

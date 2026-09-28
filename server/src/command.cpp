@@ -1,0 +1,260 @@
+#include "miniredis/command.h"
+#include "miniredis/resp.h"
+
+#include <algorithm>
+#include <cctype>
+#include <charconv>
+
+namespace miniredis {
+
+std::string CommandDispatcher::to_upper(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    return out;
+}
+
+CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, Store& store) {
+    CommandResult cr;
+    if (args.empty()) {
+        cr.response = RespSerializer::serialize_error("ERR empty command");
+        return cr;
+    }
+
+    std::string cmd = to_upper(args[0]);
+
+    if (cmd == "PING") {
+        if (args.size() > 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'ping' command");
+            return cr;
+        }
+        if (args.size() == 2) {
+            cr.response = RespSerializer::serialize_bulk_string(args[1]);
+        } else {
+            cr.response = RespSerializer::serialize_simple_string("PONG");
+        }
+        return cr;
+    }
+
+    if (cmd == "ECHO") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'echo' command");
+            return cr;
+        }
+        cr.response = RespSerializer::serialize_bulk_string(args[1]);
+        return cr;
+    }
+
+    if (cmd == "SET") {
+        if (args.size() < 3) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'set' command");
+            return cr;
+        }
+
+        const std::string& key = args[1];
+        const std::string& val = args[2];
+        std::optional<std::chrono::milliseconds> ttl = std::nullopt;
+        SetCondition cond = SetCondition::NONE;
+
+        for (size_t i = 3; i < args.size(); ++i) {
+            std::string opt = to_upper(args[i]);
+            if (opt == "EX") {
+                if (++i >= args.size()) {
+                    cr.response = RespSerializer::serialize_error("ERR syntax error");
+                    return cr;
+                }
+                int64_t sec = 0;
+                auto [ptr, ec] = std::from_chars(args[i].data(), args[i].data() + args[i].size(), sec);
+                if (ec != std::errc() || ptr != args[i].data() + args[i].size() || sec <= 0) {
+                    cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+                    return cr;
+                }
+                ttl = std::chrono::seconds(sec);
+            } else if (opt == "PX") {
+                if (++i >= args.size()) {
+                    cr.response = RespSerializer::serialize_error("ERR syntax error");
+                    return cr;
+                }
+                int64_t ms = 0;
+                auto [ptr, ec] = std::from_chars(args[i].data(), args[i].data() + args[i].size(), ms);
+                if (ec != std::errc() || ptr != args[i].data() + args[i].size() || ms <= 0) {
+                    cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+                    return cr;
+                }
+                ttl = std::chrono::milliseconds(ms);
+            } else if (opt == "NX") {
+                cond = SetCondition::NX;
+            } else if (opt == "XX") {
+                cond = SetCondition::XX;
+            } else {
+                cr.response = RespSerializer::serialize_error("ERR syntax error");
+                return cr;
+            }
+        }
+
+        bool ok = store.set(key, val, ttl, cond);
+        if (ok) {
+            cr.response = RespSerializer::serialize_simple_string("OK");
+        } else {
+            cr.response = RespSerializer::serialize_null();
+        }
+        return cr;
+    }
+
+    if (cmd == "GET") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'get' command");
+            return cr;
+        }
+        auto val = store.get(args[1]);
+        if (val.has_value()) {
+            cr.response = RespSerializer::serialize_bulk_string(*val);
+        } else {
+            cr.response = RespSerializer::serialize_null();
+        }
+        return cr;
+    }
+
+    if (cmd == "DEL") {
+        if (args.size() < 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'del' command");
+            return cr;
+        }
+        std::vector<std::string> keys(args.begin() + 1, args.end());
+        size_t count = store.del(keys);
+        cr.response = RespSerializer::serialize_integer(static_cast<int64_t>(count));
+        return cr;
+    }
+
+    if (cmd == "EXISTS") {
+        if (args.size() < 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'exists' command");
+            return cr;
+        }
+        std::vector<std::string> keys(args.begin() + 1, args.end());
+        size_t count = store.exists(keys);
+        cr.response = RespSerializer::serialize_integer(static_cast<int64_t>(count));
+        return cr;
+    }
+
+    if (cmd == "KEYS") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'keys' command");
+            return cr;
+        }
+        auto matched = store.keys(args[1]);
+        cr.response = RespSerializer::serialize_array(matched);
+        return cr;
+    }
+
+    if (cmd == "DBSIZE") {
+        if (args.size() != 1) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'dbsize' command");
+            return cr;
+        }
+        cr.response = RespSerializer::serialize_integer(static_cast<int64_t>(store.dbsize()));
+        return cr;
+    }
+
+    if (cmd == "FLUSHALL" || cmd == "FLUSHDB") {
+        store.flushall();
+        cr.response = RespSerializer::serialize_simple_string("OK");
+        return cr;
+    }
+
+    if (cmd == "TTL") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'ttl' command");
+            return cr;
+        }
+        cr.response = RespSerializer::serialize_integer(store.ttl(args[1]));
+        return cr;
+    }
+
+    if (cmd == "PTTL") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'pttl' command");
+            return cr;
+        }
+        cr.response = RespSerializer::serialize_integer(store.pttl(args[1]));
+        return cr;
+    }
+
+    if (cmd == "EXPIRE") {
+        if (args.size() != 3) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'expire' command");
+            return cr;
+        }
+        int64_t sec = 0;
+        auto [ptr, ec] = std::from_chars(args[2].data(), args[2].data() + args[2].size(), sec);
+        if (ec != std::errc() || ptr != args[2].data() + args[2].size()) {
+            cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+            return cr;
+        }
+        bool ok = store.expire(args[1], std::chrono::seconds(sec));
+        cr.response = RespSerializer::serialize_integer(ok ? 1 : 0);
+        return cr;
+    }
+
+    if (cmd == "PEXPIRE") {
+        if (args.size() != 3) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'pexpire' command");
+            return cr;
+        }
+        int64_t ms = 0;
+        auto [ptr, ec] = std::from_chars(args[2].data(), args[2].data() + args[2].size(), ms);
+        if (ec != std::errc() || ptr != args[2].data() + args[2].size()) {
+            cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+            return cr;
+        }
+        bool ok = store.pexpire(args[1], std::chrono::milliseconds(ms));
+        cr.response = RespSerializer::serialize_integer(ok ? 1 : 0);
+        return cr;
+    }
+
+    if (cmd == "PERSIST") {
+        if (args.size() != 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'persist' command");
+            return cr;
+        }
+        bool ok = store.persist(args[1]);
+        cr.response = RespSerializer::serialize_integer(ok ? 1 : 0);
+        return cr;
+    }
+
+    // Compatibility commands for real redis-cli
+    if (cmd == "COMMAND") {
+        // Return empty array so redis-cli handshake succeeds without error
+        cr.response = "*0\r\n";
+        return cr;
+    }
+
+    if (cmd == "INFO") {
+        std::string info = "# Server\r\nredis_version:miniredis-1.0.0\r\nos:macOS/Linux\r\ntcp_port:6379\r\n";
+        cr.response = RespSerializer::serialize_bulk_string(info);
+        return cr;
+    }
+
+    if (cmd == "CLIENT") {
+        cr.response = RespSerializer::serialize_simple_string("OK");
+        return cr;
+    }
+
+    if (cmd == "QUIT") {
+        cr.response = RespSerializer::serialize_simple_string("OK");
+        cr.should_close = true;
+        return cr;
+    }
+
+    // Unknown command
+    std::string err = "ERR unknown command '" + args[0] + "', with args beginning with: ";
+    for (size_t i = 1; i < args.size(); ++i) {
+        err += "'" + args[i] + "' ";
+    }
+    cr.response = RespSerializer::serialize_error(err);
+    return cr;
+}
+
+} // namespace miniredis
