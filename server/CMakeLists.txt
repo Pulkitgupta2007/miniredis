@@ -69,11 +69,33 @@ add_executable(aof_test
 )
 target_link_libraries(aof_test PRIVATE miniredis_core GTest::gtest_main)
 
+# Sanitizer options
+option(ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+
+if(ENABLE_ASAN)
+    message(STATUS "Enabling AddressSanitizer and UndefinedBehaviorSanitizer")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(ENABLE_TSAN)
+    message(STATUS "Enabling ThreadSanitizer")
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
 # Unit tests: Observability & Metrics
 add_executable(observability_test
     tests/observability_test.cpp
 )
 target_link_libraries(observability_test PRIVATE miniredis_core GTest::gtest_main)
+
+# Unit tests: RESP Parser Fuzzing & Mutation
+add_executable(fuzz_test
+    tests/fuzz_test.cpp
+)
+target_link_libraries(fuzz_test PRIVATE miniredis_core GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(store_test)
@@ -81,3 +103,4 @@ gtest_discover_tests(resp_test)
 gtest_discover_tests(eviction_test)
 gtest_discover_tests(aof_test)
 gtest_discover_tests(observability_test)
+gtest_discover_tests(fuzz_test)

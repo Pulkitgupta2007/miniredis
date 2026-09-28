@@ -245,11 +245,23 @@ void Server::handle_client_read(int fd) {
     while (!client.in_buf.empty()) {
         auto parse_res = RespParser::parse_command(client.in_buf);
         if (parse_res.status == ParseStatus::Incomplete) {
+            if (client.in_buf.size() > 64 * 1024 * 1024) {
+                client.out_buf += RespSerializer::serialize_error("ERR Protocol error: request buffer exceeded maximum limit");
+                client.should_close = true;
+                handle_client_write(fd);
+                close_client(fd);
+                return;
+            }
             break; // Await more fragments from socket
         }
 
         if (parse_res.status == ParseStatus::Error) {
             client.out_buf += RespSerializer::serialize_error("ERR Protocol error: " + parse_res.error_message);
+            client.in_buf.clear();
+            break;
+        }
+
+        if (parse_res.bytes_consumed == 0) {
             client.in_buf.clear();
             break;
         }

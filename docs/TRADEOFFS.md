@@ -106,3 +106,40 @@ MiniRedis exclusively uses `steady_clock`. To support serialization/persistence 
 - **Clock Injection**: `Store` accepts a lambda `ClockFn` that returns `TimePoint`.
   - Tests step simulated time forward by any arbitrary duration instantaneously ($0\text{ ms}$).
   - Guarantees 100% test reproducibility across all platforms.
+
+---
+
+## 7. Robustness, Fuzzing, and Sanitizer Hardening
+
+A high-performance in-memory database must be resilient against adversarial inputs, socket fragmentation, and concurrency races. During Phase 8 fuzzing and sanitizer audits, several vulnerabilities and edge-case behaviors were identified, analyzed, and mitigated:
+
+### 1. Integer Overflow in Bulk String Length Calculations
+- **Vulnerability**: In RESP, a bulk string length prefix `$len\r\n` can supply arbitrary 64-bit numbers. Without validation, evaluating `size_t total_needed = header_size + static_cast<size_t>(len) + 2` can cause unsigned integer overflow if `len > SIZE_MAX - header_size - 2`. The wrapped value resulted in a small `total_needed`, allowing incomplete inputs to bypass size validation and trigger out-of-bounds reads during CRLF validation (`input[header_size + len]`).
+- **Resolution**:
+  - Enforced an upper limit: `len > 512 * 1024 * 1024` (512 MB, matching Redis's `proto-max-bulk-len`) returns `Protocol error: bulk string length exceeds 512MB limit`.
+  - Enforced that any `len < -1` returns `Protocol error: negative bulk string length`.
+
+### 2. Speculative Heap Exhaustion via Massive Array Allocations
+- **Vulnerability**: Fuzz testing with `*1000000000\r\n` (1 billion elements) caused `elements.reserve(static_cast<size_t>(count))` to request tens of gigabytes of RAM upfront before receiving any actual elements, throwing `std::bad_alloc` and crashing the server.
+- **Resolution**:
+  - Implemented `kMaxArrayElements = 1024 * 1024` (1 million elements limit).
+  - Clamped the initial reservation: `elements.reserve(std::min(static_cast<size_t>(count), static_cast<size_t>(1024)))`. Memory grows incrementally as valid sub-frames are parsed.
+
+### 3. Slowloris / Memory Bloat via Incomplete Frame Streams
+- **Vulnerability**: An attacker sending gigabytes of random bytes without newlines (`\n`) or completing RESP frames caused the per-client `in_buf` string to expand indefinitely, eventually triggering the OS out-of-memory killer (OOM).
+- **Resolution**:
+  - Added an inline command limit: incomplete inline commands exceeding 64 KB are rejected immediately with a protocol error.
+  - Added a global per-client buffer ceiling: if `client.in_buf.size() > 64 * 1024 * 1024` (64 MB) and no complete command can be parsed, the server returns `-ERR Protocol error: request buffer exceeded maximum limit` and closes the socket.
+  - Added zero-byte consumption guard: if a command reports `bytes_consumed == 0`, the buffer is cleared to prevent infinite event loop spins.
+
+### 4. Stack Overflow Protection via Recursion Limits
+- **Vulnerability**: Deeply nested arrays (`*1\r\n*1\r\n...*1\r\n+leaf\r\n`) cause recursion in `RespParser::parse_internal`. Excessive nesting depths can exhaust the thread call stack and trigger `SIGSEGV`.
+- **Resolution**:
+  - Enforced `kMaxRecursionDepth = 64`. If recursion depth reaches 64, parsing aborts with `Protocol error: maximum recursion depth exceeded`.
+
+### 5. Sanitizer Audit Matrix
+MiniRedis was subjected to continuous verification across three LLVM sanitizer suites:
+- **AddressSanitizer (ASan)** (`-fsanitize=address`): Proves zero heap use-after-free, zero heap buffer overflows, zero global buffer overflows, and zero memory leaks.
+- **UndefinedBehaviorSanitizer (UBSan)** (`-fsanitize=undefined`): Proves zero signed integer overflows, zero null pointer dereferences, zero misaligned pointer accesses, and zero invalid bit-shifts.
+- **ThreadSanitizer (TSan)** (`-fsanitize=thread`): Validated the AOF engine with its background 1 Hz `fsync` worker thread under the `everysec` policy; proves zero data races between the event loop writer and background sync thread.
+

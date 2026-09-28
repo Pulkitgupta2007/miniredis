@@ -1,6 +1,8 @@
 # Build directories
 build/
 server/build/
+server/build_asan/
+server/build_tsan/
 .cache/
 compile_commands.json
 

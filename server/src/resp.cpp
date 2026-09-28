@@ -47,6 +47,11 @@ ParseResult RespParser::parse_inline(std::string_view input) {
     ParseResult res;
     size_t newline_pos = input.find('\n');
     if (newline_pos == std::string_view::npos) {
+        if (input.size() > 64 * 1024) {
+            res.status = ParseStatus::Error;
+            res.error_message = "Protocol error: inline command exceeds 64KB limit";
+            return res;
+        }
         res.status = ParseStatus::Incomplete;
         return res;
     }
@@ -166,6 +171,13 @@ ParseResult RespParser::parse_internal(std::string_view input, size_t depth) {
                 return res;
             }
 
+            constexpr int64_t kMaxBulkStringLength = 512 * 1024 * 1024; // 512MB
+            if (len > kMaxBulkStringLength) {
+                res.status = ParseStatus::Error;
+                res.error_message = "Protocol error: bulk string length exceeds 512MB limit";
+                return res;
+            }
+
             size_t header_size = crlf + 2;
             size_t total_needed = header_size + static_cast<size_t>(len) + 2;
             if (input.size() < total_needed) {
@@ -214,9 +226,16 @@ ParseResult RespParser::parse_internal(std::string_view input, size_t depth) {
                 return res;
             }
 
+            constexpr int64_t kMaxArrayElements = 1024 * 1024; // 1M elements
+            if (count > kMaxArrayElements) {
+                res.status = ParseStatus::Error;
+                res.error_message = "Protocol error: array exceeds maximum allowed elements (1M)";
+                return res;
+            }
+
             size_t consumed = crlf + 2;
             std::vector<RespValue> elements;
-            elements.reserve(static_cast<size_t>(count));
+            elements.reserve(std::min(static_cast<size_t>(count), static_cast<size_t>(1024)));
 
             for (int64_t i = 0; i < count; ++i) {
                 if (consumed >= input.size()) {
