@@ -6,13 +6,23 @@ Systems design is the discipline of navigating trade-offs. This document outline
 
 ## 1. Storage Layout: Single Map vs. Separate Dictionaries
 
-- **Option A (Standard Library Map with Inlined Metadata)**:
-  `unordered_map<string, Entry>` where `Entry = { value, expires_at }`, supplemented by `unordered_set<string> expires_`.
-- **Option B (Dual Dictionary like Redis C Implementation)**:
-  `dict data` and `dict expires` where `expires` maps `key -> timestamp`.
+- **Option A (`std::unordered_map` wrapper)**:
+  Encapsulates standard library separate chaining with bucket-level forward lists.
+  - *Pros*: Battle-tested, zero bug surface, clean RAII memory safety, exception safety.
+  - *Cons*: Node-based allocation introduces heap fragmentation and cache misses (pointer chasing through buckets). Stop-the-world rehashing can produce latency spikes when resizing large tables.
+- **Option B (Custom Chained Hash Table - Stretch Goal implemented in `miniredis::ChainedHashTable`)**:
+  Manual array of buckets with singly linked `Node` structs and power-of-two growth.
+  - *Pros*: Full control over memory layout, predictable load factor triggers, direct interview explainability.
+  - *Cons*: Still relies on node pointer dereferencing for collision chains.
+- **Option C (Open-Addressing / Robin Hood / Swiss Table)**:
+  Stores elements directly in contiguous slots without linked list nodes.
+  - *Pros*: Exceptional CPU cache locality and zero node allocation overhead.
+  - *Cons*: Deletions require tombstone markers or backward-shift deletion; high load factors degrade performance severely.
+- **Option D (Redis Production `dict` with Progressive Rehashing)**:
+  Redis maintains two tables (`ht[0]` and `ht[1]`). During rehash, each query/command migrates a fixed number of buckets (`dictRehash(d, 1)`) so client latency never spikes.
 
 ### Decision
-Option A was chosen for clean C++ encapsulation and cache locality. Storing `expires_at` alongside `value` eliminates a secondary hash lookup on reads (`GET` only probes `data_`). The auxiliary `expires_` set tracks keys with active TTLs so the background `active_expire_cycle()` does not iterate over millions of non-expiring keys.
+For Phase 1, `Store` wraps `std::unordered_map` to maintain a robust, leak-free foundation while fully implementing Redis command semantics. We implement `ChainedHashTable` alongside it as an explainable systems milestone. In later phases, progressive rehashing can be plugged in without changing the `Store` public contract.
 
 ---
 

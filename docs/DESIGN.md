@@ -47,13 +47,21 @@ MiniRedis is decomposed into modular layers:
 
 ### 1. Data Structures
 - **Primary Data Store (`data_`)**: `std::unordered_map<std::string, Entry>`
+  - Why wrap `std::unordered_map`?
+    - Provides a standard, collision-resistant separate chaining hash table with $\mathcal{O}(1)$ average complexity.
+    - Clean separation of concerns: table memory management and bucket distribution are isolated from Redis-specific semantics (NX/XX condition flags, monotonic TTL expiration, binary safety).
   - `Entry` contains:
     - `value`: `std::string`
     - `expires_at`: `std::optional<std::chrono::steady_clock::time_point>`
-  - Average time complexity: **O(1)** for lookups, insertions, and deletions.
 - **TTL Index (`expires_`)**: `std::unordered_set<std::string>`
   - Tracks keys that have an associated TTL.
   - Avoids full database scans during periodic active expiration sweeps.
+- **Custom Chained Hash Table (`ChainedHashTable<K, V>`) [Stretch Goal]**:
+  - Located in [`server/include/miniredis/chained_hash_table.h`](file:///Users/pulkit/miniredis/server/include/miniredis/chained_hash_table.h).
+  - Demonstrates manual implementation of a bucket array with singly linked nodes, pointer manipulation, and dynamic power-of-two rehashing triggered at load factor $\ge 1.0$.
+
+### 2. Binary Safety
+In C, strings are null-terminated (`\0`), making it impossible to store binary data (such as protobufs, encrypted tokens, or compressed buffers) containing embedded null bytes without truncation. MiniRedis keys and values use `std::string` and `std::string_view`, which explicitly store `size` alongside a continuous buffer pointer. This guarantees full binary safety across all commands (`SET`, `GET`, `DEL`, `KEYS`).
 
 ### 2. Expiration Strategy (Dual Model)
 Redis employs a hybrid strategy to balance CPU cycles and memory usage:

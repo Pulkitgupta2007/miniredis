@@ -276,6 +276,17 @@ void Store::flushdb() {
     expires_.clear();
 }
 
+void Store::flushall() {
+    flushdb();
+}
+
+std::string Store::ping(std::optional<std::string_view> message) {
+    if (message.has_value()) {
+        return std::string(*message);
+    }
+    return "PONG";
+}
+
 std::vector<std::string> Store::keys(std::string_view pattern) {
     std::vector<std::string> matched;
     // Iterate and passively prune expired keys during keys enumeration

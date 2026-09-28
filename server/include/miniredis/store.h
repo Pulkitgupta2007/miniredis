@@ -60,10 +60,17 @@ public:
     // Database Inspection & Management
     size_t dbsize();
     void flushdb();
+    void flushall(); // Clears all keys across the store
+    std::string ping(std::optional<std::string_view> message = std::nullopt);
     std::vector<std::string> keys(std::string_view pattern = "*");
     size_t expires_size() const;
 
 private:
+    // Architectural Note:
+    // Store wraps std::unordered_map to decouple Redis protocol/command semantics
+    // (NX/XX conditions, monotonic TTL tracking, passive expiration) from table mechanics.
+    // std::unordered_map uses separate chaining with a bucket array of linked nodes,
+    // providing O(1) average lookup/insert/delete and standard exception safety.
     struct Entry {
         std::string value;
         std::optional<TimePoint> expires_at;
