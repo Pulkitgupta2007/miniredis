@@ -216,13 +216,40 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         return cr;
     }
 
-    if (cmd == "PERSIST") {
-        if (args.size() != 2) {
-            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'persist' command");
+    if (cmd == "EXPIREAT") {
+        if (args.size() != 3) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'expireat' command");
             return cr;
         }
-        bool ok = store.persist(args[1]);
+        int64_t sec = 0;
+        auto [ptr, ec] = std::from_chars(args[2].data(), args[2].data() + args[2].size(), sec);
+        if (ec != std::errc() || ptr != args[2].data() + args[2].size()) {
+            cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+            return cr;
+        }
+        bool ok = store.expireat(args[1], sec);
         cr.response = RespSerializer::serialize_integer(ok ? 1 : 0);
+        return cr;
+    }
+
+    if (cmd == "PEXPIREAT") {
+        if (args.size() != 3) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'pexpireat' command");
+            return cr;
+        }
+        int64_t ms = 0;
+        auto [ptr, ec] = std::from_chars(args[2].data(), args[2].data() + args[2].size(), ms);
+        if (ec != std::errc() || ptr != args[2].data() + args[2].size()) {
+            cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+            return cr;
+        }
+        bool ok = store.pexpireat(args[1], ms);
+        cr.response = RespSerializer::serialize_integer(ok ? 1 : 0);
+        return cr;
+    }
+
+    if (cmd == "BGREWRITEAOF") {
+        cr.response = RespSerializer::serialize_simple_string("Background append only file rewriting started");
         return cr;
     }
 

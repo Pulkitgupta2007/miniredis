@@ -9,6 +9,8 @@
 
 namespace miniredis {
 
+class AofManager;
+
 struct ClientSession {
     int fd{-1};
     std::string in_buf{};
@@ -18,7 +20,7 @@ struct ClientSession {
 
 class Server {
 public:
-    Server(std::string host, int port, Store& store);
+    Server(std::string host, int port, Store& store, AofManager* aof = nullptr);
     ~Server();
 
     Server(const Server&) = delete;
@@ -37,6 +39,7 @@ private:
     std::string host_;
     int port_;
     Store& store_;
+    AofManager* aof_{nullptr};
 
     int listen_fd_{-1};
     int signal_pipe_[2]{-1, -1};

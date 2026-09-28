@@ -11,6 +11,8 @@
 #include <cstring>
 #include <iostream>
 
+#include "miniredis/aof.h"
+
 namespace miniredis {
 
 namespace {
@@ -36,8 +38,8 @@ bool set_nonblocking(int fd) {
 
 } // namespace
 
-Server::Server(std::string host, int port, Store& store)
-    : host_(std::move(host)), port_(port), store_(store) {}
+Server::Server(std::string host, int port, Store& store, AofManager* aof)
+    : host_(std::move(host)), port_(port), store_(store), aof_(aof) {}
 
 Server::~Server() {
     stop();
@@ -67,6 +69,17 @@ void Server::init_signal_pipe() {
 }
 
 bool Server::start() {
+    // Replay AOF on startup if configured
+    if (aof_) {
+        std::cout << "[MiniRedis] Replaying AOF log from " << aof_->filename() << "...\n";
+        auto replay_res = aof_->replay(store_);
+        std::cout << "[MiniRedis] Replayed " << replay_res.commands_replayed << " commands from AOF.\n";
+        if (replay_res.truncated_recovered) {
+            std::cout << "[MiniRedis] Recovered from truncated AOF log tail successfully.\n";
+        }
+        aof_->open();
+    }
+
     listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd_ < 0) {
         std::cerr << "Failed to create socket: " << std::strerror(errno) << "\n";
@@ -145,6 +158,10 @@ bool Server::start() {
 
 void Server::stop() {
     running_ = false;
+
+    if (aof_) {
+        aof_->close();
+    }
 
     // Close all connected clients
     for (auto& [fd, session] : clients_) {
@@ -254,6 +271,21 @@ void Server::handle_client_read(int fd) {
         client.out_buf += cmd_res.response;
         if (cmd_res.should_close) {
             client.should_close = true;
+        }
+
+        // Log mutating commands to AOF if enabled and command succeeded
+        if (aof_ && !args.empty() && !cmd_res.response.empty() && cmd_res.response[0] != '-') {
+            std::string cmd = args[0];
+            for (char& c : cmd) {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
+            if (cmd == "SET" || cmd == "DEL" || cmd == "EXPIRE" || cmd == "PEXPIRE" ||
+                cmd == "EXPIREAT" || cmd == "PEXPIREAT" || cmd == "PERSIST" ||
+                cmd == "FLUSHALL" || cmd == "FLUSHDB") {
+                aof_->append_command(args);
+            } else if (cmd == "BGREWRITEAOF") {
+                aof_->rewrite(store_);
+            }
         }
     }
 

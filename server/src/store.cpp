@@ -390,6 +390,28 @@ bool Store::pexpire(const std::string& key, std::chrono::milliseconds ms) {
     return true;
 }
 
+bool Store::pexpireat(const std::string& key, int64_t epoch_ms, int64_t now_epoch_ms) {
+    if (check_and_expire(key)) {
+        return false;
+    }
+    auto it = data_.find(key);
+    if (it == data_.end()) {
+        return false;
+    }
+
+    int64_t current_ms = (now_epoch_ms != 0) ? now_epoch_ms : current_time_ms();
+    int64_t diff = epoch_ms - current_ms;
+    if (diff <= 0) {
+        del(key);
+        return true;
+    }
+    return pexpire(key, std::chrono::milliseconds(diff));
+}
+
+bool Store::expireat(const std::string& key, int64_t epoch_sec, int64_t now_epoch_sec) {
+    return pexpireat(key, epoch_sec * 1000, now_epoch_sec * 1000);
+}
+
 bool Store::persist(const std::string& key) {
     if (check_and_expire(key)) {
         return false;

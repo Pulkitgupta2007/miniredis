@@ -60,8 +60,31 @@ For Phase 1, `Store` wraps `std::unordered_map` to maintain a robust, leak-free 
     - Direct interview explainability (classic LeetCode 146 LRU & 460 LFU systems patterns).
   - *Cons*: Node pointers require extra heap memory per tracked key.
 
+---
+
+## 6. Persistence & Durability: AOF Fsync Policies & AOF vs. RDB
+
+### Fsync Policies Trade-Off Matrix
+
+| Policy | Durability Guarantee | Write Latency | Performance Impact | Use Case |
+|---|---|---|---|---|
+| **`always`** | Maximum (0 data loss) | High ($\sim 1\text{ ms} - 10\text{ ms}$) | Bound by disk IOPS; throughput drops $10\times - 50\times$ | Financial / billing records |
+| **`everysec`** | High ($\le 1\text{ second}$ loss) | Minimal ($\sim \mu\text{s}$) | Background thread calls `fsync()` every 1s; near-memory speed | **Recommended production default** |
+| **`no`** | Weak (up to 30s loss) | None ($\sim \mu\text{s}$) | OS kernel determines page cache flushing (`pdflush` / `flush-dirty`) | Non-critical cache / read-heavy buffers |
+
+### AOF (Append-Only File) vs. RDB (Snapshotting)
+
+- **RDB Snapshotting**:
+  Dumps the entire database state to disk as a binary point-in-time snapshot (via `fork()`).
+  - *Pros*: Compact single-file format, fast full-database restore times, zero disk I/O overhead on main client execution.
+  - *Cons*: High data loss window (e.g. 5–15 minutes between snapshots); `fork()` on huge heaps copies page tables and can incur severe memory spikes under copy-on-write (COW).
+- **AOF Logging**:
+  Appends every mutating command to an operational log.
+  - *Pros*: Granular durability (at most 1 second of loss under `everysec`), human-readable/parseable RESP format, simple crash recovery.
+  - *Cons*: Log files grow larger than RDB files; requires periodic compaction (`rewrite`) to eliminate redundant operations.
+
 ### Decision
-MiniRedis implements Option B. For an educational systems engineering project, deterministic correctness and verifiable property tests against reference implementations outweigh the marginal memory savings of approximated sampling.
+MiniRedis implements AOF with configurable `always`, `everysec`, and `no` policies, accompanied by atomic log compaction via POSIX `rename()`. This gives users explicit control over the durability/latency frontier.
 
 ---
 

@@ -4,7 +4,7 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(MiniRedis VERSION 0.3.0 LANGUAGES CXX)
+project(MiniRedis VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,6 +24,7 @@ add_library(miniredis_core
     src/poller.cpp
     src/command.cpp
     src/server.cpp
+    src/aof.cpp
 )
 target_include_directories(miniredis_core PUBLIC include)
 
@@ -62,7 +63,14 @@ add_executable(eviction_test
 )
 target_link_libraries(eviction_test PRIVATE miniredis_core GTest::gtest_main)
 
+# Unit tests: AOF Persistence
+add_executable(aof_test
+    tests/aof_test.cpp
+)
+target_link_libraries(aof_test PRIVATE miniredis_core GTest::gtest_main)
+
 include(GoogleTest)
 gtest_discover_tests(store_test)
 gtest_discover_tests(resp_test)
 gtest_discover_tests(eviction_test)
+gtest_discover_tests(aof_test)

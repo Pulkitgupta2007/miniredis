@@ -138,3 +138,53 @@ Return -OOM         Eviction Loop:
 #### C. In-Memory Eviction Ring Buffer
 - Fixed-capacity circular array of `EvictionEvent` structs (`key`, `policy`, `timestamp_ms`, `freed_bytes`).
 - Non-allocating after initialization; stores the last $N$ evictions for real-time telemetry streaming to the Node.js bridge and React dashboard.
+
+---
+
+## 6. Persistence Engine (Append-Only File - AOF)
+
+MiniRedis provides crash recovery and durability via an Append-Only File (AOF) logger executing at the server event loop layer:
+
+```
++-----------------------------------------------------------+
+|               Write Command Execution (SET, etc)          |
++-----------------------------------------------------------+
+                              |
+                     Command Succeeded
+                              |
+                              v
+        +-------------------------------------------+
+        |  AOF Logger: Serialize to RESP Array      |
+        +-------------------------------------------+
+                              |
+                    write(aof_fd, frame)
+                              |
+                              v
+        +-------------------------------------------+
+        | Fsync Policy Check:                       |
+        | - ALWAYS:   fsync() immediately           |
+        | - EVERYSEC: background thread syncs 1 Hz  |
+        | - NO:       rely on OS page cache flushes |
+        +-------------------------------------------+
+```
+
+### 1. Absolute Timestamp Translation for TTL
+Relative expirations (`SET k v EX 10`) cannot be logged directly; replaying them upon server reboot would erroneously extend key lifetimes by another 10 seconds.
+- During logging and rewrite, relative timeouts are translated to absolute Unix timestamps:
+  `PEXPIREAT <key> <absolute_epoch_ms>`
+- On replay, `pexpireat(key, absolute_ms)` calculates remaining time relative to current epoch time.
+- If the timestamp is in the past (`remaining <= 0`), the key is discarded immediately and **never resurrected**.
+
+### 2. Crash Recovery & Partial Record Truncation
+Power failures or unexpected crashes during a write operation can leave a half-written RESP frame at the tail of the AOF log.
+- On startup, `AofManager::replay()` parses frames iteratively while recording the byte offset of the last valid command.
+- If the stream ends with an `Incomplete` or corrupted frame, MiniRedis detects the incomplete record, issues a warning, and calls `ftruncate(fd, last_valid_offset)`.
+- Normal startup resumes with zero manual operator intervention.
+
+### 3. Atomic Log Compaction (`BGREWRITEAOF`)
+As the dataset mutates, the AOF log accumulates obsolete commands (e.g. intermediate updates to a counter or deleted keys).
+- The rewrite process snapshots all live keys in the current `Store`.
+- Compiles the minimal state into a temporary file: `<filename>.rewrite.tmp`.
+- Calls `fsync()` to ensure complete media flush.
+- Atomically replaces the active log using the POSIX atomic primitive `rename(tmp, target)`.
+- Guarantees crash safety: the active AOF log is never in a half-written or corrupted state.

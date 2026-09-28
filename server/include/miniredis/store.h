@@ -82,6 +82,8 @@ public:
 
     bool expire(const std::string& key, std::chrono::seconds sec);
     bool pexpire(const std::string& key, std::chrono::milliseconds ms);
+    bool expireat(const std::string& key, int64_t epoch_sec, int64_t now_epoch_sec = 0);
+    bool pexpireat(const std::string& key, int64_t epoch_ms, int64_t now_epoch_ms = 0);
     bool persist(const std::string& key);
 
     ActiveExpireStats active_expire_cycle(
