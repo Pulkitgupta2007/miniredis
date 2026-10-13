@@ -151,7 +151,7 @@ export function MemoryOpsChart({ history = [] }) {
         >
           <defs>
             <linearGradient id="memGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#d64028" stopOpacity="0.22" />
+              <stop offset="0%" stopColor="#d64028" stopOpacity="0.10" />
               <stop offset="100%" stopColor="#d64028" stopOpacity="0.01" />
             </linearGradient>
           </defs>
@@ -162,7 +162,7 @@ export function MemoryOpsChart({ history = [] }) {
             y1={padding.top}
             x2={width - padding.right}
             y2={padding.top}
-            stroke="#22242c"
+            stroke="#ebeef1"
             strokeDasharray="2 3"
           />
           <line
@@ -170,7 +170,7 @@ export function MemoryOpsChart({ history = [] }) {
             y1={padding.top + (height - padding.top - padding.bottom) / 2}
             x2={width - padding.right}
             y2={padding.top + (height - padding.top - padding.bottom) / 2}
-            stroke="#22242c"
+            stroke="#ebeef1"
             strokeDasharray="2 3"
           />
           <line
@@ -178,22 +178,22 @@ export function MemoryOpsChart({ history = [] }) {
             y1={height - padding.bottom}
             x2={width - padding.right}
             y2={height - padding.bottom}
-            stroke="#2d3039"
+            stroke="#d0d7de"
           />
 
           {/* Left Y Axis (Memory) */}
-          <text x={padding.left - 8} y={padding.top + 4} fill="#e18576" fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">
+          <text x={padding.left - 8} y={padding.top + 4} fill="#c53018" fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">
             {formatBytes(chartData.maxMem)}
           </text>
-          <text x={padding.left - 8} y={height - padding.bottom} fill="#828594" fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">
+          <text x={padding.left - 8} y={height - padding.bottom} fill="#6e7781" fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">
             0B
           </text>
 
           {/* Right Y Axis (Ops/sec) */}
-          <text x={width - padding.right + 6} y={padding.top + 4} fill="#58a6ff" fontSize="10" fontFamily="var(--font-mono)" textAnchor="start">
+          <text x={width - padding.right + 6} y={padding.top + 4} fill="#0969da" fontSize="10" fontFamily="var(--font-mono)" textAnchor="start">
             {chartData.maxOps}/s
           </text>
-          <text x={width - padding.right + 6} y={height - padding.bottom} fill="#828594" fontSize="10" fontFamily="var(--font-mono)" textAnchor="start">
+          <text x={width - padding.right + 6} y={height - padding.bottom} fill="#6e7781" fontSize="10" fontFamily="var(--font-mono)" textAnchor="start">
             0/s
           </text>
 
@@ -217,7 +217,7 @@ export function MemoryOpsChart({ history = [] }) {
             <polyline
               points={chartData.opsPoints}
               fill="none"
-              stroke="#58a6ff"
+              stroke="#0969da"
               strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -233,7 +233,7 @@ export function MemoryOpsChart({ history = [] }) {
                 y1={padding.top}
                 x2={chartData.memCoords[hoverIndex][0]}
                 y2={height - padding.bottom}
-                stroke="#4a4d5a"
+                stroke="#8c959f"
                 strokeWidth="1"
                 strokeDasharray="2 2"
               />
@@ -242,7 +242,7 @@ export function MemoryOpsChart({ history = [] }) {
                 cy={chartData.memCoords[hoverIndex][1]}
                 r="4"
                 fill="#d64028"
-                stroke="#18191f"
+                stroke="#ffffff"
                 strokeWidth="1.5"
               />
               {chartData.opsCoords[hoverIndex] && (
@@ -250,8 +250,8 @@ export function MemoryOpsChart({ history = [] }) {
                   cx={chartData.opsCoords[hoverIndex][0]}
                   cy={chartData.opsCoords[hoverIndex][1]}
                   r="3.5"
-                  fill="#58a6ff"
-                  stroke="#18191f"
+                  fill="#0969da"
+                  stroke="#ffffff"
                   strokeWidth="1.5"
                 />
               )}
@@ -266,7 +266,7 @@ export function MemoryOpsChart({ history = [] }) {
                 cy={chartData.memCoords[chartData.memCoords.length - 1][1]}
                 r="3.5"
                 fill="#d64028"
-                stroke="#18191f"
+                stroke="#ffffff"
                 strokeWidth="1.5"
               />
               {chartData.opsCoords.length > 0 && (
@@ -274,8 +274,8 @@ export function MemoryOpsChart({ history = [] }) {
                   cx={chartData.opsCoords[chartData.opsCoords.length - 1][0]}
                   cy={chartData.opsCoords[chartData.opsCoords.length - 1][1]}
                   r="3"
-                  fill="#58a6ff"
-                  stroke="#18191f"
+                  fill="#0969da"
+                  stroke="#ffffff"
                   strokeWidth="1.5"
                 />
               )}
