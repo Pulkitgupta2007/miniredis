@@ -166,7 +166,7 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
           setSimStatus('Eviction storm cancelled.');
           break;
         }
-        await onExecute(`SET storm:payload:${i} "${payload}"`);
+        await onExecute(['SET', `storm:payload:${i}`, payload]);
         if (i % 2 === 0 || i === total) {
           setSimProgress(Math.round((i / total) * 100));
         }

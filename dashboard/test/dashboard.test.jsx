@@ -4,6 +4,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { Header } from '../src/components/Header';
 import { MetricCards } from '../src/components/MetricCards';
+import { MemoryOpsChart } from '../src/components/MemoryOpsChart';
 import { LruVisualizer } from '../src/components/LruVisualizer';
 import { EventFeed } from '../src/components/EventFeed';
 import { CommandConsole } from '../src/components/CommandConsole';
@@ -54,6 +55,47 @@ describe('MetricCards Component', () => {
     expect(screen.getByTestId('metric-memory').textContent).toContain('(25%)');
     expect(screen.getByTestId('metric-keys').textContent).toContain('15');
     expect(screen.getByText('Policy: allkeys-lru')).toBeDefined();
+  });
+});
+
+describe('MemoryOpsChart Component', () => {
+  it('renders gracefully when history is empty', () => {
+    render(<MemoryOpsChart history={[]} />);
+    expect(screen.getByTestId('chart-panel')).toBeDefined();
+    expect(screen.getByText(/Real-Time Telemetry/i)).toBeDefined();
+    expect(screen.getByText(/Last 0 epochs/i)).toBeDefined();
+  });
+
+  it('renders memory and ops metrics with peak values and SVG polylines', () => {
+    const history = [
+      { timestamp: 1000, used_memory: 1024, ops_per_sec: 10 },
+      { timestamp: 2000, used_memory: 4096, ops_per_sec: 50 },
+      { timestamp: 3000, used_memory: 2048, ops_per_sec: 25 }
+    ];
+
+    render(<MemoryOpsChart history={history} />);
+    expect(screen.getByTestId('chart-panel')).toBeDefined();
+    expect(screen.getByText(/Last 3 epochs/i)).toBeDefined();
+    // Latest values
+    expect(screen.getByText('2.0KB')).toBeDefined();
+    expect(screen.getByText('25 ops/s')).toBeDefined();
+    // Peak badges
+    expect(screen.getByText('(peak: 4.0KB)')).toBeDefined();
+    expect(screen.getByText('(peak: 50/s)')).toBeDefined();
+  });
+
+  it('renders reliably under simulated eviction storm workload', () => {
+    // Generate 40 data points representing an eviction storm burst
+    const stormHistory = Array.from({ length: 40 }, (_, i) => ({
+      timestamp: 10000 + i * 20,
+      used_memory: 51200 - (i % 5) * 1024,
+      ops_per_sec: 200 + i * 50
+    }));
+
+    render(<MemoryOpsChart history={stormHistory} />);
+    expect(screen.getByTestId('chart-panel')).toBeDefined();
+    expect(screen.getByText(/Last 40 epochs/i)).toBeDefined();
+    expect(screen.getByText(/peak: 50.0KB/i)).toBeDefined();
   });
 });
 
@@ -332,8 +374,32 @@ describe('KeyspaceExplorer Component', () => {
     const submitBtn = screen.getByText('Set Key (SET)');
     fireEvent.click(submitBtn);
 
-    expect(onExecute).toHaveBeenCalledWith('SET user:new:99 "SecretValue"');
+    expect(onExecute).toHaveBeenCalledWith(['SET', 'user:new:99', 'SecretValue']);
     const feedback = await screen.findByText(/Created key "user:new:99"/i);
+    expect(feedback).toBeDefined();
+  });
+
+  it('safely creates key with JSON value containing quotes without syntax error', async () => {
+    const onExecute = vi.fn().mockResolvedValue('OK');
+    render(
+      <KeyspaceExplorer
+        onExecute={onExecute}
+        online={true}
+      />
+    );
+
+    fireEvent.click(screen.getByText('+ Add Key'));
+    const keyInput = screen.getByPlaceholderText('e.g. user:profile:100');
+    fireEvent.change(keyInput, { target: { value: 'session:json:1' } });
+
+    const valInput = screen.getByPlaceholderText(/e\.g\. \{"name": "Alice"/);
+    fireEvent.change(valInput, { target: { value: '{"name": "Alice", "role": "admin"}' } });
+
+    const submitBtn = screen.getByText('Set Key (SET)');
+    fireEvent.click(submitBtn);
+
+    expect(onExecute).toHaveBeenCalledWith(['SET', 'session:json:1', '{"name": "Alice", "role": "admin"}']);
+    const feedback = await screen.findByText(/Created key "session:json:1"/i);
     expect(feedback).toBeDefined();
   });
 });

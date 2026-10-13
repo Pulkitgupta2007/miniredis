@@ -56,11 +56,25 @@ export function App() {
 
             if (msg.online && msg.metrics) {
               setHistory((prev) => {
+                const now = msg.timestamp || Date.now();
                 const newPoint = {
-                  timestamp: msg.timestamp || Date.now(),
+                  timestamp: now,
                   used_memory: msg.metrics.used_memory || 0,
                   ops_per_sec: msg.metrics.ops_per_sec || 0
                 };
+                if (prev.length === 0) return [newPoint];
+                const last = prev[prev.length - 1];
+                // If updates arrive rapidly in a burst (< 300ms), update the latest point with the peak
+                // so burst mutations do not displace the entire historical window
+                if (now - last.timestamp < 300) {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    timestamp: now,
+                    used_memory: Math.max(last.used_memory, newPoint.used_memory),
+                    ops_per_sec: Math.max(last.ops_per_sec, newPoint.ops_per_sec)
+                  };
+                  return updated;
+                }
                 const updated = [...prev, newPoint];
                 return updated.slice(-30); // keep last 30 data points
               });

@@ -106,13 +106,13 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
   const handleSaveInspect = async () => {
     if (!inspectKey) return;
     try {
-      await onExecute(`SET ${inspectKey} "${inspectValue}"`);
+      await onExecute(['SET', inspectKey, inspectValue]);
       if (inspectTtl !== '') {
         const ttlNum = parseInt(inspectTtl, 10);
         if (!isNaN(ttlNum) && ttlNum > 0) {
-          await onExecute(`EXPIRE ${inspectKey} ${ttlNum}`);
+          await onExecute(['EXPIRE', inspectKey, String(ttlNum)]);
         } else if (ttlNum <= 0) {
-          await onExecute(`PERSIST ${inspectKey}`);
+          await onExecute(['PERSIST', inspectKey]);
         }
       }
       setModalFeedback({ type: 'success', message: 'Key updated successfully!' });
@@ -128,7 +128,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
   const handleDeleteKey = async (keyToDelete) => {
     if (!window.confirm(`Delete key "${keyToDelete}"?`)) return;
     try {
-      await onExecute(`DEL ${keyToDelete}`);
+      await onExecute(['DEL', keyToDelete]);
       setKeys((prev) => prev.filter((k) => k.key !== keyToDelete));
       if (activeModal === 'inspect' && inspectKey === keyToDelete) {
         setActiveModal(null);
@@ -145,20 +145,20 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
       return;
     }
 
-    let cmd = `SET ${newKey.trim()} "${newValue}"`;
+    const cmdArgs = ['SET', newKey.trim(), newValue];
     if (newExpiryType === 'EX') {
       const s = parseInt(newExpiryVal, 10) || 60;
-      cmd += ` EX ${s}`;
+      cmdArgs.push('EX', String(s));
     } else if (newExpiryType === 'PX') {
       const ms = parseInt(newExpiryVal, 10) || 60000;
-      cmd += ` PX ${ms}`;
+      cmdArgs.push('PX', String(ms));
     }
 
-    if (newCondition === 'NX') cmd += ' NX';
-    if (newCondition === 'XX') cmd += ' XX';
+    if (newCondition === 'NX') cmdArgs.push('NX');
+    if (newCondition === 'XX') cmdArgs.push('XX');
 
     try {
-      await onExecute(cmd);
+      await onExecute(cmdArgs);
       setModalFeedback({ type: 'success', message: `Created key "${newKey}"!` });
       setTimeout(() => {
         setActiveModal(null);

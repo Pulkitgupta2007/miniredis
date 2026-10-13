@@ -268,12 +268,17 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .panel-title {
@@ -290,13 +295,16 @@ body {
 /* Telemetry Layout */
 .telemetry-row {
   display: grid;
-  grid-template-columns: 2fr 1.1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.1fr);
   gap: 20px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 960px) {
   .telemetry-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -304,28 +312,69 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .telemetry-sidebar {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 /* SVG Chart */
 .chart-wrapper {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
+  height: 190px;
+  position: relative;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .telemetry-svg {
   width: 100%;
-  height: auto;
+  height: 100%;
+  max-height: 190px;
   display: block;
+  user-select: none;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: rgba(24, 24, 27, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+}
+
+.chart-legend-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 4px;
 }
 
 .chart-legend {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 14px;
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -340,6 +389,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .dot-memory { background: var(--accent-purple); }
@@ -347,14 +397,36 @@ body {
 
 /* LRU Visualizer */
 .lru-track {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
-  padding-bottom: 6px;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 #18181b;
+}
+
+.lru-track::-webkit-scrollbar {
+  height: 6px;
+}
+
+.lru-track::-webkit-scrollbar-track {
+  background: #18181b;
+  border-radius: 4px;
+}
+
+.lru-track::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 4px;
 }
 
 .lru-nodes-scroll {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .lru-node {
@@ -1582,8 +1654,28 @@ body {
 .lfu-buckets-grid {
   display: flex;
   gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 8px 4px 14px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 #18181b;
+}
+
+.lfu-buckets-grid::-webkit-scrollbar {
+  height: 6px;
+}
+
+.lfu-buckets-grid::-webkit-scrollbar-track {
+  background: #18181b;
+  border-radius: 4px;
+}
+
+.lfu-buckets-grid::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 4px;
 }
 
 .lfu-bucket-column {

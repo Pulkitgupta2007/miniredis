@@ -109,17 +109,49 @@ class RedisClient extends EventEmitter {
     if (Array.isArray(input)) return input;
     if (typeof input !== 'string') return [String(input)];
 
-    const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
     const args = [];
-    let match;
-    while ((match = regex.exec(input)) !== null) {
-      if (match[1] !== undefined) {
-        args.push(match[1]);
-      } else if (match[2] !== undefined) {
-        args.push(match[2]);
-      } else {
-        args.push(match[0]);
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '';
+    let escaped = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
       }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (inQuotes) {
+        if (char === quoteChar) {
+          inQuotes = false;
+        } else {
+          current += char;
+        }
+      } else {
+        if (char === '"' || char === "'") {
+          inQuotes = true;
+          quoteChar = char;
+        } else if (/\s/.test(char)) {
+          if (current.length > 0) {
+            args.push(current);
+            current = '';
+          }
+        } else {
+          current += char;
+        }
+      }
+    }
+
+    if (current.length > 0) {
+      args.push(current);
     }
     return args;
   }
