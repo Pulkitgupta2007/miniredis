@@ -187,23 +187,22 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
       {/* Explorer Header */}
       <div className="explorer-header">
         <div className="explorer-title-area">
-          <h3 className="explorer-title">Keyspace Explorer & Data Browser</h3>
-          <p className="explorer-subtitle">Inspect, edit, query, and monitor keys with live TTL countdowns</p>
+          <span className="explorer-icon">🗄️</span>
+          <div>
+            <h3 className="explorer-title">Keyspace Explorer & Data Browser</h3>
+            <p className="explorer-subtitle">Inspect, edit, query, and monitor keys with live TTL countdowns</p>
+          </div>
         </div>
 
         <div className="explorer-actions">
           <div className="search-box">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="search-icon" aria-hidden="true" style={{ position: 'absolute', left: '8px', color: 'var(--text-muted)' }}>
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
+            <span className="search-icon">🔍</span>
             <input
               type="text"
               placeholder="Search keys..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input"
-              style={{ paddingLeft: '26px' }}
             />
             {searchQuery && (
               <button
@@ -294,7 +293,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                       ) : (
                         <div className="ttl-bar-wrapper">
                           <span className={`ttl-badge expiring ${item.ttl < 10 ? 'critical' : item.ttl < 30 ? 'warn' : ''}`}>
-                            {item.ttl}s
+                            ⏱ {item.ttl}s
                           </span>
                           <div className="ttl-progress-track">
                             <div
@@ -312,19 +311,15 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                         className="action-btn inspect-btn"
                         title="Inspect & Edit"
                       >
-                        Edit
+                        ✏️ Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteKey(item.key)}
                         className="action-btn delete-btn"
                         title="Delete key"
-                        aria-label={`Delete key ${item.key}`}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
+                        🗑️
                       </button>
                     </td>
                   </tr>

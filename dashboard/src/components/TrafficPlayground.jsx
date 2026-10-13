@@ -208,8 +208,11 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
       <div className="playground-card config-panel">
         <div className="playground-header">
           <div className="playground-title-row">
-            <h3 className="playground-title">Cache & Eviction Policy</h3>
-            <p className="playground-subtitle">Configure memory limits and eviction algorithms in real-time</p>
+            <span className="playground-icon">⚙️</span>
+            <div>
+              <h3 className="playground-title">Cache & Eviction Policy</h3>
+              <p className="playground-subtitle">Configure memory limits and eviction algorithms in real-time</p>
+            </div>
           </div>
           <span className="current-badge">
             Active: {metrics.maxmemory_policy || 'noeviction'}
@@ -351,8 +354,11 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
       <div className="playground-card traffic-panel">
         <div className="playground-header">
           <div className="playground-title-row">
-            <h3 className="playground-title">Traffic & Chaos Playground</h3>
-            <p className="playground-subtitle">Simulate real-world client traffic, cache misses, and eviction storms</p>
+            <span className="playground-icon">🚦</span>
+            <div>
+              <h3 className="playground-title">Traffic & Chaos Playground</h3>
+              <p className="playground-subtitle">Simulate real-world client traffic, cache misses, and eviction storms</p>
+            </div>
           </div>
           {activeSimulation && (
             <button
@@ -392,9 +398,7 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn burst-btn"
           >
             <div className="sim-btn-header">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-              </svg>
+              <span className="sim-btn-icon">⚡</span>
               <span className="sim-btn-name">Burst 100 Keys</span>
             </div>
             <span className="sim-btn-desc">100 rapid SET operations with TTL. Spikes ops/sec and memory.</span>
@@ -407,11 +411,7 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn zipf-btn"
           >
             <div className="sim-btn-header">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <circle cx="12" cy="12" r="6"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-              </svg>
+              <span className="sim-btn-icon">🎯</span>
               <span className="sim-btn-name">80/20 Zipfian Reads</span>
             </div>
             <span className="sim-btn-desc">Seeds 20 keys, fires 80% hot reads. Drives hit ratio to ~80%.</span>
@@ -424,9 +424,7 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn storm-btn"
           >
             <div className="sim-btn-header">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
-              </svg>
+              <span className="sim-btn-icon">🌪️</span>
               <span className="sim-btn-name">Eviction Storm</span>
             </div>
             <span className="sim-btn-desc">Enforces 50KB LRU limit and writes 40 heavy keys to force evictions.</span>
@@ -439,10 +437,7 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn flush-btn"
           >
             <div className="sim-btn-header">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
+              <span className="sim-btn-icon">🧹</span>
               <span className="sim-btn-name">FLUSHALL Keys</span>
             </div>
             <span className="sim-btn-desc">Clears all keys in the database to cleanly reset the store.</span>

@@ -125,13 +125,7 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePoli
         /* LFU View */
         sortedFrequencies.length === 0 ? (
           <div className="empty-state" data-testid="lfu-empty">
-            <div className="empty-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="18" y1="20" x2="18" y2="10"></line>
-                <line x1="12" y1="20" x2="12" y2="4"></line>
-                <line x1="6" y1="20" x2="6" y2="14"></line>
-              </svg>
-            </div>
+            <div className="empty-icon">📊</div>
             <p className="empty-text">No keys tracked in LFU engine.</p>
             <span className="empty-subtext">Add keys or run simulations to see frequency distribution.</span>
           </div>
