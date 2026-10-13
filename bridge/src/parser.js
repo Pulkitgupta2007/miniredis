@@ -38,31 +38,61 @@ function parseInfo(infoStr) {
  */
 function parseEvents(eventLines) {
   if (!Array.isArray(eventLines)) return [];
+  const KNOWN_TYPES = new Set(['EVICTION', 'EXPIRATION', 'COMMAND']);
+
   return eventLines.map((line) => {
     if (typeof line !== 'string') return line;
-    const firstColon = line.indexOf(':');
-    if (firstColon === -1) return { timestamp: Date.now(), type: 'UNKNOWN', key: '', detail: line };
+    const trimmed = line.trim();
+    if (!trimmed) return null;
 
-    const secondColon = line.indexOf(':', firstColon + 1);
-    if (secondColon === -1) return { timestamp: Number(line.slice(0, firstColon)) || Date.now(), type: line.slice(firstColon + 1), key: '', detail: '' };
+    // 1. Support space-delimited format from C++ server: "<timestamp_ms> <TYPE> <key> [details]"
+    const spaceParts = trimmed.split(/\s+/);
+    if (spaceParts.length >= 3 && KNOWN_TYPES.has(spaceParts[1].toUpperCase())) {
+      let ts = Number(spaceParts[0]);
+      if (!ts || ts < 1000000000000) {
+        ts = Date.now();
+      }
+      return {
+        timestamp: ts,
+        type: spaceParts[1].toUpperCase(),
+        key: spaceParts[2],
+        detail: spaceParts.slice(3).join(' ')
+      };
+    }
 
-    const thirdColon = line.indexOf(':', secondColon + 1);
+    // 2. Support colon-delimited format: "<timestamp_ms>:<TYPE>:<key>:<detail>"
+    const firstColon = trimmed.indexOf(':');
+    if (firstColon === -1) {
+      return { timestamp: Date.now(), type: 'UNKNOWN', key: '', detail: trimmed };
+    }
+
+    const secondColon = trimmed.indexOf(':', firstColon + 1);
+    if (secondColon === -1) {
+      return {
+        timestamp: Number(trimmed.slice(0, firstColon)) || Date.now(),
+        type: trimmed.slice(firstColon + 1),
+        key: '',
+        detail: ''
+      };
+    }
+
+    const thirdColon = trimmed.indexOf(':', secondColon + 1);
     if (thirdColon === -1) {
       return {
-        timestamp: Number(line.slice(0, firstColon)) || Date.now(),
-        type: line.slice(firstColon + 1, secondColon),
-        key: line.slice(secondColon + 1),
+        timestamp: Number(trimmed.slice(0, firstColon)) || Date.now(),
+        type: trimmed.slice(firstColon + 1, secondColon),
+        key: trimmed.slice(secondColon + 1),
         detail: ''
       };
     }
 
     return {
-      timestamp: Number(line.slice(0, firstColon)) || Date.now(),
-      type: line.slice(firstColon + 1, secondColon),
-      key: line.slice(secondColon + 1, thirdColon),
-      detail: line.slice(thirdColon + 1)
+      timestamp: Number(trimmed.slice(0, firstColon)) || Date.now(),
+      type: trimmed.slice(firstColon + 1, secondColon),
+      key: trimmed.slice(secondColon + 1, thirdColon),
+      detail: trimmed.slice(thirdColon + 1)
     };
-  });
+  }).filter(Boolean);
 }
 
 /**

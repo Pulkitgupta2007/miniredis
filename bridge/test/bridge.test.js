@@ -34,6 +34,20 @@ describe('Parser Utilities', () => {
     assert.strictEqual(events[1].type, 'EXPIRATION');
     assert.strictEqual(events[1].key, 'session_token');
     assert.strictEqual(events[1].detail, 'active_cycle');
+
+    // Test C++ space-delimited format
+    const spaceEvents = [
+      '517824665 EXPIRATION user:1 active_cycle',
+      '516927300 EVICTION storm:payload:1 freed=1092'
+    ];
+    const parsedSpace = parseEvents(spaceEvents);
+    assert.strictEqual(parsedSpace.length, 2);
+    assert.strictEqual(parsedSpace[0].type, 'EXPIRATION');
+    assert.strictEqual(parsedSpace[0].key, 'user:1');
+    assert.strictEqual(parsedSpace[0].detail, 'active_cycle');
+    assert.strictEqual(parsedSpace[1].type, 'EVICTION');
+    assert.strictEqual(parsedSpace[1].key, 'storm:payload:1');
+    assert.strictEqual(parsedSpace[1].detail, 'freed=1092');
   });
 
   test('encodeRespCommand formats arguments into RESP2 Array', () => {

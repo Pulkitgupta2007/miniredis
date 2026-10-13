@@ -3,14 +3,18 @@ import React, { useState } from 'react';
 export function EventFeed({ events = [] }) {
   const [filter, setFilter] = useState('ALL');
 
+  const evictionCount = events.filter((e) => (e.type || '').toUpperCase() === 'EVICTION').length;
+  const expirationCount = events.filter((e) => (e.type || '').toUpperCase() === 'EXPIRATION').length;
+
   const filteredEvents = events.filter((ev) => {
     if (filter === 'ALL') return true;
-    return ev.type === filter;
+    return (ev.type || '').toUpperCase() === filter;
   });
 
   const formatTime = (ts) => {
     if (!ts) return '';
     const date = new Date(ts);
+    if (isNaN(date.getTime())) return '';
     return date.toTimeString().split(' ')[0] + '.' + String(date.getMilliseconds()).padStart(3, '0');
   };
 
@@ -46,20 +50,22 @@ export function EventFeed({ events = [] }) {
       <div className="event-list" data-testid="event-list">
         {filteredEvents.length === 0 ? (
           <div className="empty-state">
-            <p className="empty-text">No lifecycle events recorded yet.</p>
+            <p className="empty-text">
+              {filter === 'ALL' ? 'No lifecycle events recorded yet.' : `No ${filter.toLowerCase()} events recorded.`}
+            </p>
             <span className="empty-subtext">Keys evicted via maxmemory or expired via TTL will appear here live.</span>
           </div>
         ) : (
           filteredEvents.map((ev, i) => {
-            const isEviction = ev.type === 'EVICTION';
+            const isEviction = (ev.type || '').toUpperCase() === 'EVICTION';
             return (
-              <div key={i} className="event-row" data-testid="event-row">
+              <div key={`${ev.key || 'key'}-${ev.timestamp || i}-${i}`} className="event-row" data-testid="event-row">
                 <span className="event-time">{formatTime(ev.timestamp)}</span>
                 <span className={`event-badge ${isEviction ? 'badge-eviction' : 'badge-expiration'}`}>
-                  {ev.type}
+                  {ev.type || 'EVENT'}
                 </span>
-                <span className="event-key">{ev.key}</span>
-                <span className="event-detail">{ev.detail}</span>
+                <span className="event-key">{ev.key || '<none>'}</span>
+                {ev.detail ? <span className="event-detail">{ev.detail}</span> : null}
               </div>
             );
           })
