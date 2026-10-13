@@ -20,13 +20,18 @@ export function Header({ online, uptimeSeconds, connectedClients, lastUpdated })
     <>
       <header className="header-container" data-testid="header">
         <div className="header-brand">
-          <div className="logo-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          <div className="logo-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
             </svg>
           </div>
-          <div>
-            <h1 className="header-title">MiniRedis Live Monitor</h1>
+          <div className="header-titles">
+            <div className="header-title-row">
+              <h1 className="header-title">MiniRedis Console</h1>
+              <span className="instance-pill">engine: v1.0 • port 6379</span>
+            </div>
             <span className="header-subtitle">In-Memory Engine &amp; Event Loop Telemetry</span>
           </div>
         </div>
@@ -38,7 +43,13 @@ export function Header({ online, uptimeSeconds, connectedClients, lastUpdated })
             onClick={() => setShowGuide(true)}
             title="Read Systems Architecture Guide"
           >
-            🏛️ Systems Architecture
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            </svg>
+            <span>Systems Architecture</span>
           </button>
 
           <div
@@ -46,7 +57,7 @@ export function Header({ online, uptimeSeconds, connectedClients, lastUpdated })
             className={`status-badge ${online ? 'status-online' : 'status-offline'}`}
           >
             <span className="status-dot"></span>
-            <span>{online ? 'MINIREDIS ONLINE' : 'SERVER OFFLINE'}</span>
+            <span className="status-text">{online ? 'MINIREDIS ONLINE' : 'SERVER OFFLINE'}</span>
           </div>
 
           {online ? (

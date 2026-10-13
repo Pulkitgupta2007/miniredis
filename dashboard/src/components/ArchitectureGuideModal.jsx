@@ -8,20 +8,19 @@ export function ArchitectureGuideModal({ isOpen, onClose }) {
       <div className="modal-content architecture-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title-with-icon">
-            <span className="modal-icon">🏛️</span>
             <div>
               <h4>MiniRedis Systems Architecture & Core Algorithms</h4>
               <p className="modal-subtitle">Direct insights into the modern C++17 implementation</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="modal-close-btn">×</button>
+          <button type="button" onClick={onClose} className="modal-close-btn" aria-label="Close guide">×</button>
         </div>
 
         <div className="architecture-sections-scroll">
           {/* Section 1 */}
           <div className="arch-card">
             <div className="arch-card-header">
-              <span className="arch-step-badge">1</span>
+              <span className="arch-step-badge">01</span>
               <h5>Single-Threaded Reactor Event Loop (epoll / kqueue)</h5>
             </div>
             <p className="arch-card-body">
@@ -34,7 +33,7 @@ export function ArchitectureGuideModal({ isOpen, onClose }) {
           {/* Section 2 */}
           <div className="arch-card">
             <div className="arch-card-header">
-              <span className="arch-step-badge">2</span>
+              <span className="arch-step-badge">02</span>
               <h5>Streaming Zero-Copy RESP2 Parser &amp; Security Boundaries</h5>
             </div>
             <p className="arch-card-body">
@@ -51,7 +50,7 @@ export function ArchitectureGuideModal({ isOpen, onClose }) {
           {/* Section 3 */}
           <div className="arch-card">
             <div className="arch-card-header">
-              <span className="arch-step-badge">3</span>
+              <span className="arch-step-badge">03</span>
               <h5>True O(1) Expiration via Contiguous Swap-and-Pop</h5>
             </div>
             <p className="arch-card-body">
@@ -68,7 +67,7 @@ export function ArchitectureGuideModal({ isOpen, onClose }) {
           {/* Section 4 */}
           <div className="arch-card">
             <div className="arch-card-header">
-              <span className="arch-step-badge">4</span>
+              <span className="arch-step-badge">04</span>
               <h5>Exact O(1) LRU vs. Exact O(1) LFU Cache Eviction</h5>
             </div>
             <p className="arch-card-body">
@@ -83,7 +82,7 @@ export function ArchitectureGuideModal({ isOpen, onClose }) {
           {/* Section 5 */}
           <div className="arch-card">
             <div className="arch-card-header">
-              <span className="arch-step-badge">5</span>
+              <span className="arch-step-badge">05</span>
               <h5>AOF Persistence, Epoch Timestamps &amp; Atomic Compaction</h5>
             </div>
             <p className="arch-card-body">

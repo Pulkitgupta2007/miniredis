@@ -24,12 +24,12 @@ const REDIS_COMMAND_HINTS = [
 ];
 
 const TEMPLATE_SNIPPETS = [
-  { label: '👤 User Session (1h TTL)', cmd: 'SET session:user:101 \'{"name":"Alice","role":"admin"}\' EX 3600' },
-  { label: '⏱️ Rate Limit Window', cmd: 'SET ratelimit:ip:127.0.0.1 "1" EX 60 NX' },
-  { label: '🔒 Mutex Lock (NX/EX)', cmd: 'SET lock:resource:order "worker_1" EX 30 NX' },
-  { label: '📄 Cache Page (2m TTL)', cmd: 'SET cache:page:index "<html><h1>MiniRedis</h1></html>" EX 120' },
-  { label: '⚙️ Set 50KB LRU Limit', cmd: 'CONFIG SET maxmemory 51200' },
-  { label: '🔍 Check Key Memory', cmd: 'MEMORY USAGE session:user:101' }
+  { label: 'User Session (1h TTL)', cmd: 'SET session:user:101 \'{"name":"Alice","role":"admin"}\' EX 3600' },
+  { label: 'Rate Limit Window (60s)', cmd: 'SET ratelimit:ip:127.0.0.1 "1" EX 60 NX' },
+  { label: 'Distributed Lock (NX/EX)', cmd: 'SET lock:resource:order "worker_1" EX 30 NX' },
+  { label: 'Cached HTML Page (2m TTL)', cmd: 'SET cache:page:index "<html><h1>MiniRedis</h1></html>" EX 120' },
+  { label: 'Set 50KB LRU Limit', cmd: 'CONFIG SET maxmemory 51200' },
+  { label: 'Key Memory Usage', cmd: 'MEMORY USAGE session:user:101' }
 ];
 
 export function CommandConsole({ onExecute, online, prefillCommand }) {
@@ -235,7 +235,21 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
           <div key={i} className={`console-line line-${item.type}`} data-testid={`console-line-${item.type}`}>
             {item.type === 'input' && <span className="prompt-arrow">&gt;&nbsp;</span>}
             <pre className="console-text">{item.text}</pre>
-            {item.latency && <span className="console-latency-tag">⚡ {item.latency}</span>}
+            {item.latency && <span className="console-latency-tag num-tabular">{item.latency}</span>}
+            {item.type === 'output' && item.text && item.text !== '(nil)' && (
+              <button
+                type="button"
+                className="console-copy-btn"
+                onClick={() => {
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    navigator.clipboard.writeText(item.text);
+                  }
+                }}
+                title="Copy output"
+              >
+                Copy
+              </button>
+            )}
           </div>
         ))}
         {loading && (
@@ -275,7 +289,7 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
         )}
 
         <form className="console-form" onSubmit={handleSubmit} data-testid="console-form">
-          <span className="terminal-prefix">redis&gt;</span>
+          <span className="terminal-prefix">miniredis:6379&gt;</span>
           <input
             ref={inputRef}
             type="text"
