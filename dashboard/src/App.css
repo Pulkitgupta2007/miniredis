@@ -763,11 +763,19 @@ body {
   align-items: flex-start;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
 }
 
 .playground-title-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.playground-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .playground-title {
@@ -788,21 +796,22 @@ body {
   background: #fef3c7;
   color: #b45309;
   border: 1px solid #fde68a;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 4px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .config-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .form-label {
@@ -835,6 +844,7 @@ body {
   font-family: var(--font-mono);
   font-size: 13px;
   outline: none;
+  transition: border-color 0.15s ease;
 }
 
 .config-input:focus {
@@ -850,18 +860,25 @@ body {
   font-size: 12px;
   outline: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.unit-select:focus {
+  border-color: var(--accent-amber);
 }
 
 .presets-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  margin-top: 2px;
 }
 
 .preset-label {
   font-size: 11px;
   color: var(--text-muted);
+  font-weight: 500;
 }
 
 .preset-btn {
@@ -871,6 +888,7 @@ body {
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 11px;
+  font-family: var(--font-mono);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -901,15 +919,16 @@ body {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   transition: all 0.2s ease;
   position: relative;
 }
 
 .policy-pill input[type="radio"] {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
+  accent-color: var(--accent-amber);
 }
 
 .policy-pill:hover {
@@ -920,6 +939,7 @@ body {
 .policy-pill.active {
   border-color: var(--accent-amber);
   background: #fffbeb;
+  box-shadow: 0 0 0 1px var(--accent-amber);
 }
 
 .pill-title {
@@ -932,6 +952,7 @@ body {
 .pill-desc {
   font-size: 11px;
   color: var(--text-muted);
+  line-height: 1.3;
 }
 
 .form-footer {
@@ -946,22 +967,30 @@ body {
   color: #ffffff;
   border: none;
   border-radius: 6px;
-  padding: 8px 16px;
+  padding: 8px 18px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.1s ease;
 }
 
 .apply-btn:hover:not(:disabled) {
   background: #b45309;
+  transform: translateY(-1px);
+}
+
+.apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .feedback-badge {
   font-size: 11px;
   font-family: var(--font-mono);
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 4px;
+  font-weight: 500;
 }
 
 .feedback-badge.success {
@@ -976,64 +1005,93 @@ body {
   border: 1px solid #fecaca;
 }
 
-/* Traffic Sim Grid */
-.sim-grid {
+/* Traffic Simulation Buttons Grid & Actions */
+.sim-buttons-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 @media (max-width: 640px) {
-  .sim-grid {
+  .sim-buttons-grid {
     grid-template-columns: 1fr;
   }
 }
 
-.sim-card {
+.sim-btn {
   background: #ffffff;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
+  gap: 6px;
   text-align: left;
+  cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(44, 37, 25, 0.04);
 }
 
-.sim-card:hover:not(:disabled) {
-  border-color: var(--accent-amber);
-  background: #fdfaf0;
-  transform: translateY(-1px);
+.sim-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(44, 37, 25, 0.08);
 }
 
-.sim-card:disabled {
-  opacity: 0.5;
+.sim-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
-.sim-card-danger:hover:not(:disabled) {
+.sim-btn-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-btn-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.sim-btn-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sim-btn-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.burst-btn:hover:not(:disabled) {
+  border-color: var(--accent-amber);
+  background: #fffdf5;
+}
+
+.zipf-btn:hover:not(:disabled) {
+  border-color: var(--accent-green);
+  background: #f7fdf9;
+}
+
+.storm-btn:hover:not(:disabled) {
   border-color: var(--accent-red);
   background: #fff8f8;
 }
 
-.sim-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.sim-card-desc {
-  font-size: 11px;
-  color: var(--text-muted);
+.flush-btn:hover:not(:disabled) {
+  border-color: var(--accent-purple);
+  background: #faf7ff;
 }
 
 .sim-progress-box {
   background: var(--bg-card-subtle);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1042,12 +1100,14 @@ body {
 .progress-info {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 12px;
   font-family: var(--font-mono);
 }
 
 .sim-status-text {
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .progress-percent {
@@ -1065,9 +1125,19 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: var(--accent-amber);
+  background: linear-gradient(90deg, #d97706, #15803d);
   border-radius: 999px;
-  transition: width 0.2s ease;
+  transition: width 0.15s ease-out;
+}
+
+.sim-result-banner {
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  padding: 10px 14px;
+  border-radius: 8px;
 }
 
 .stop-sim-btn {
@@ -1075,10 +1145,15 @@ body {
   border: 1px solid #fca5a5;
   color: #dc2626;
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stop-sim-btn:hover {
+  background: #fecaca;
 }
 
 /* Keyspace Explorer & Browser Styles */
