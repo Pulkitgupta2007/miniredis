@@ -1,5 +1,3 @@
-import React from 'react';
-
 export function MetricCards({ metrics = {} }) {
   const formatBytes = (bytes) => {
     if (!bytes && bytes !== 0) return '0 B';
@@ -12,9 +10,6 @@ export function MetricCards({ metrics = {} }) {
   const maxMem = metrics.maxmemory || 0;
   const memPct = maxMem > 0 ? Math.min(100, Math.round((usedMem / maxMem) * 100)) : null;
 
-  const hits = metrics.keyspace_hits || 0;
-  const misses = metrics.keyspace_misses || 0;
-  const hitRatio = metrics.hit_ratio !== undefined ? Number(metrics.hit_ratio).toFixed(1) : '100.0';
   const ops = metrics.ops_per_sec || 0;
   const totalKeys = metrics.total_keys || 0;
   const evictedKeys = metrics.evicted_keys || 0;
@@ -27,7 +22,7 @@ export function MetricCards({ metrics = {} }) {
       <div className="metric-card">
         <div className="metric-header">
           <span className="metric-title">Throughput</span>
-          <span className="metric-tag tag-cyan">1s sliding window</span>
+          <span className="metric-subtext">1s sliding window</span>
         </div>
         <div className="metric-value" data-testid="metric-ops">
           {ops} <span className="metric-unit">ops/sec</span>
@@ -37,32 +32,11 @@ export function MetricCards({ metrics = {} }) {
         </div>
       </div>
 
-      {/* 2. Hit / Miss Ratio */}
-      <div className="metric-card">
-        <div className="metric-header">
-          <span className="metric-title">Hit Ratio</span>
-          <span className={`metric-tag ${Number(hitRatio) >= 80 ? 'tag-green' : 'tag-amber'}`}>
-            {hits + misses > 0 ? `${hits} hits / ${misses} misses` : 'No lookups yet'}
-          </span>
-        </div>
-        <div className="metric-value" data-testid="metric-hit-ratio">
-          {hitRatio}<span className="metric-unit">%</span>
-        </div>
-        <div className="metric-footer">
-          <div className="ratio-bar-bg">
-            <div
-              className="ratio-bar-fill"
-              style={{ width: `${Math.max(0, Math.min(100, Number(hitRatio)))}%` }}
-            ></div>
-          </div>
-        </div>
-      </div>
-
       {/* 3. Memory Usage */}
       <div className="metric-card">
         <div className="metric-header">
           <span className="metric-title">Memory Allocation</span>
-          <span className="metric-tag tag-purple">
+          <span className="metric-subtext">
             {maxMem > 0 ? `Cap: ${formatBytes(maxMem)}` : 'Unlimited'}
           </span>
         </div>
@@ -88,7 +62,7 @@ export function MetricCards({ metrics = {} }) {
       <div className="metric-card">
         <div className="metric-header">
           <span className="metric-title">Keyspace Lifecycle</span>
-          <span className="metric-tag tag-indigo">Policy: {policy}</span>
+          <span className="metric-subtext">Policy: {policy}</span>
         </div>
         <div className="metric-value" data-testid="metric-keys">
           {totalKeys} <span className="metric-unit">keys</span>

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 
 export function MemoryOpsChart({ history = [] }) {
   // history is array of { timestamp, used_memory, ops_per_sec }
@@ -117,12 +117,10 @@ export function MemoryOpsChart({ history = [] }) {
           <span className="legend-item">
             <span className="legend-dot dot-memory"></span>
             Memory: <b>{formatBytes(chartData.latestMem)}</b>
-            <span className="chart-legend-badge">(peak: {formatBytes(chartData.peakMem)})</span>
           </span>
           <span className="legend-item">
             <span className="legend-dot dot-ops"></span>
             Throughput: <b>{chartData.latestOps} ops/s</b>
-            <span className="chart-legend-badge">(peak: {chartData.peakOps}/s)</span>
           </span>
         </div>
       </div>

@@ -1,4 +1,5 @@
 #include "miniredis/server.h"
+#include "miniredis/aof.h"
 #include "miniredis/command.h"
 #include "miniredis/resp.h"
 
@@ -10,8 +11,6 @@
 #include <csignal>
 #include <cstring>
 #include <iostream>
-
-#include "miniredis/aof.h"
 
 namespace miniredis {
 

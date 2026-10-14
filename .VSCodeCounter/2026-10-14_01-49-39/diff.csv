@@ -1,0 +1,5 @@
+"filename", "language", "JSON", "JavaScript", "comment", "blank", "total"
+"/Users/pulkit/Desktop/miniredis/bridge/package.json", "JSON", -1, 0, 0, 0, -1
+"/Users/pulkit/Desktop/miniredis/bridge/test/bridge.test.js", "JavaScript", 0, -285, -5, -44, -334
+"/Users/pulkit/Desktop/miniredis/bridge/test/e2e.test.js", "JavaScript", 0, -85, -8, -15, -108
+"Total", "-", -1, -370, -13, -59, -443

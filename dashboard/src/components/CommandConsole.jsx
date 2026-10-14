@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 const REDIS_COMMAND_HINTS = [
   { cmd: 'SET', syntax: 'SET <key> <value> [EX seconds | PX ms] [NX | XX]', desc: 'Store string value with optional TTL and conditions' },
@@ -63,7 +63,7 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
   }, [history]);
 
   // Compute autocomplete suggestions
-  const suggestions = React.useMemo(() => {
+  const suggestions = useMemo(() => {
     const trimmed = input.trimStart();
     if (!trimmed) return [];
     const firstWord = trimmed.split(' ')[0].toUpperCase();
@@ -72,7 +72,7 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
     ).slice(0, 5);
   }, [input]);
 
-  const activeHint = React.useMemo(() => {
+  const activeHint = useMemo(() => {
     const firstWord = input.trim().split(' ')[0].toUpperCase();
     return REDIS_COMMAND_HINTS.find((h) => h.cmd === firstWord);
   }, [input]);

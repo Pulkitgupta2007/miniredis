@@ -47,7 +47,7 @@ miniredis/
     │       ├── LruVisualizer.jsx    # Interactive LRU linked list & LFU buckets
     │       ├── EventFeed.jsx        # Live eviction/expiration ring buffer stream
     │       ├── KeyspaceExplorer.jsx # Table browser, TTL ticker, binary-safe CRUD
-    │       ├── TrafficPlayground.jsx# Traffic generator (Burst, Zipfian, Eviction Storm)
+    │       ├── TrafficPlayground.jsx# Traffic generator (Burst, Eviction Storm, Flush)
     │       └── CommandConsole.jsx   # Interactive CLI console with syntax helpers
     └── test/                        # 23 Vitest component tests
 ```

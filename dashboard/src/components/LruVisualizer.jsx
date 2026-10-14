@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 
-export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePolicy }) {
+export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey }) {
   const [viewMode, setViewMode] = useState('lru'); // 'lru' | 'lfu'
 
   // Parse LFU keys formatted as "key:freq"
-  const lfuBuckets = React.useMemo(() => {
+  const lfuBuckets = useMemo(() => {
     const buckets = {};
     for (const item of lfuKeys) {
       if (typeof item !== 'string') continue;
@@ -44,14 +44,14 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePoli
                 className={`mode-pill ${viewMode === 'lru' ? 'active' : ''}`}
                 onClick={() => setViewMode('lru')}
               >
-                🔄 LRU List
+                LRU List
               </button>
               <button
                 type="button"
                 className={`mode-pill ${viewMode === 'lfu' ? 'active' : ''}`}
                 onClick={() => setViewMode('lfu')}
               >
-                📊 LFU Buckets
+                LFU Buckets
               </button>
             </div>
           </div>
@@ -61,7 +61,7 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePoli
               : 'Keys grouped by access count. min_freq pointer points to lowest bucket; LRU tie-breaking within buckets.'}
           </span>
         </div>
-        <span className="metric-tag tag-indigo">
+        <span className="panel-subtext">
           {viewMode === 'lru'
             ? `${keys.length} tracked ${keys.length === 1 ? 'key' : 'keys'}`
             : `${totalLfuKeys} tracked ${totalLfuKeys === 1 ? 'key' : 'keys'}`}
@@ -88,7 +88,7 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePoli
                 const isLru = index === keys.length - 1 && keys.length > 1;
 
                 return (
-                  <React.Fragment key={key}>
+                  <Fragment key={key}>
                     <div
                       className={`lru-node ${isMru ? 'node-mru' : ''} ${isLru ? 'node-lru' : ''}`}
                       onClick={() => onSelectKey && onSelectKey(key)}
@@ -115,7 +115,7 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey, activePoli
                         </svg>
                       </div>
                     )}
-                  </React.Fragment>
+                  </Fragment>
                 );
               })}
             </div>

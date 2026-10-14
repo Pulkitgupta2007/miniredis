@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
   const [keys, setKeys] = useState([]);

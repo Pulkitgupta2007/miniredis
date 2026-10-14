@@ -1,7 +1,6 @@
 #include "miniredis/resp.h"
 
 #include <charconv>
-#include <sstream>
 
 namespace miniredis {
 

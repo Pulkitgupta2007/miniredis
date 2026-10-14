@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Header } from './components/Header';
 import { MetricCards } from './components/MetricCards';
 import { MemoryOpsChart } from './components/MemoryOpsChart';
@@ -38,10 +38,6 @@ export function App() {
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
-
-      ws.onopen = () => {
-        // Connected to bridge
-      };
 
       ws.onmessage = (event) => {
         try {
@@ -172,7 +168,6 @@ export function App() {
           online={online}
           uptimeSeconds={metrics.uptime_in_seconds}
           connectedClients={metrics.connected_clients}
-          lastUpdated={Date.now()}
         />
 
         <MetricCards metrics={metrics} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function TrafficPlayground({ onExecute, online, metrics }) {
   // Config state
@@ -87,50 +87,6 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
       }
       if (!abortSimRef.current) {
         setSimStatus('Burst complete! 100 keys created with 180s TTL.');
-      }
-    } catch (err) {
-      setSimStatus(`Error: ${err.message}`);
-    } finally {
-      setTimeout(() => {
-        setActiveSimulation(null);
-        setSimProgress(0);
-      }, 2500);
-    }
-  };
-
-  const runZipfianWorkload = async () => {
-    if (!online || activeSimulation) return;
-    setActiveSimulation('zipf');
-    abortSimRef.current = false;
-    setSimProgress(0);
-    setSimStatus('Seeding 20 dataset keys...');
-
-    try {
-      // Seed 20 keys
-      for (let i = 1; i <= 20; i++) {
-        if (abortSimRef.current) break;
-        await onExecute(`SET cache:item:${i} "payload_data_${i}"`);
-      }
-
-      setSimStatus('Running 80/20 read queries (driving cache hit ratio)...');
-      const totalReads = 80;
-      for (let i = 1; i <= totalReads; i++) {
-        if (abortSimRef.current) {
-          setSimStatus('Zipfian workload cancelled.');
-          break;
-        }
-        // 80% chance to query top 4 hot keys (1..4), 20% to query keys 5..25 (some miss)
-        const isHot = Math.random() < 0.8;
-        const keyIdx = isHot ? Math.floor(Math.random() * 4) + 1 : Math.floor(Math.random() * 25) + 1;
-        await onExecute(`GET cache:item:${keyIdx}`);
-
-        if (i % 4 === 0 || i === totalReads) {
-          setSimProgress(Math.round((i / totalReads) * 100));
-        }
-      }
-
-      if (!abortSimRef.current) {
-        setSimStatus('Zipfian read simulation complete! Observe elevated hit ratio.');
       }
     } catch (err) {
       setSimStatus(`Error: ${err.message}`);
@@ -398,23 +354,9 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn burst-btn"
           >
             <div className="sim-btn-header">
-              <span className="sim-btn-icon">⚡</span>
               <span className="sim-btn-name">Burst 100 Keys</span>
             </div>
             <span className="sim-btn-desc">100 rapid SET operations with TTL. Spikes ops/sec and memory.</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={runZipfianWorkload}
-            disabled={!online || Boolean(activeSimulation)}
-            className="sim-btn zipf-btn"
-          >
-            <div className="sim-btn-header">
-              <span className="sim-btn-icon">🎯</span>
-              <span className="sim-btn-name">80/20 Zipfian Reads</span>
-            </div>
-            <span className="sim-btn-desc">Seeds 20 keys, fires 80% hot reads. Drives hit ratio to ~80%.</span>
           </button>
 
           <button
@@ -424,7 +366,6 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn storm-btn"
           >
             <div className="sim-btn-header">
-              <span className="sim-btn-icon">🌪️</span>
               <span className="sim-btn-name">Eviction Storm</span>
             </div>
             <span className="sim-btn-desc">Enforces 50KB LRU limit and writes 40 heavy keys to force evictions.</span>
@@ -437,7 +378,6 @@ export function TrafficPlayground({ onExecute, online, metrics }) {
             className="sim-btn flush-btn"
           >
             <div className="sim-btn-header">
-              <span className="sim-btn-icon">🧹</span>
               <span className="sim-btn-name">FLUSHALL Keys</span>
             </div>
             <span className="sim-btn-desc">Clears all keys in the database to cleanly reset the store.</span>

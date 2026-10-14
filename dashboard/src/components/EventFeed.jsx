@@ -1,10 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export function EventFeed({ events = [] }) {
   const [filter, setFilter] = useState('ALL');
-
-  const evictionCount = events.filter((e) => (e.type || '').toUpperCase() === 'EVICTION').length;
-  const expirationCount = events.filter((e) => (e.type || '').toUpperCase() === 'EXPIRATION').length;
 
   const filteredEvents = events.filter((ev) => {
     if (filter === 'ALL') return true;

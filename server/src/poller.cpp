@@ -1,7 +1,6 @@
 #include "miniredis/poller.h"
 
 #include <unistd.h>
-#include <cerrno>
 
 #if defined(__linux__)
 #include <sys/epoll.h>
