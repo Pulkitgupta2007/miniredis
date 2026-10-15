@@ -454,7 +454,7 @@ ActiveExpireStats Store::active_expire_cycle(size_t sample_size, std::chrono::mi
 
     auto start_time = current_time();
     constexpr size_t kMaxIterations = 16;
-    std::mt19937 rng(42);
+    thread_local std::mt19937 rng(std::random_device{}());
 
     while (stats.iterations < kMaxIterations && !expiry_keys_.empty()) {
         stats.iterations++;
@@ -539,13 +539,6 @@ void Store::flushall() {
     flushdb();
 }
 
-std::string Store::ping(std::optional<std::string_view> message) {
-    if (message.has_value()) {
-        return std::string(*message);
-    }
-    return "PONG";
-}
-
 std::vector<std::string> Store::keys(std::string_view pattern) {
     std::vector<std::string> matched;
     auto it = data_.begin();
@@ -571,8 +564,49 @@ std::vector<std::string> Store::keys(std::string_view pattern) {
     return matched;
 }
 
-size_t Store::expires_size() const {
-    return expiry_keys_.size();
+std::pair<size_t, std::vector<std::string>> Store::scan(
+    size_t cursor,
+    std::string_view pattern,
+    size_t count)
+{
+    if (data_.empty() || cursor >= data_.size()) {
+        return {0, {}};
+    }
+
+    std::vector<std::string> matched;
+    matched.reserve(count);
+
+    auto it = data_.begin();
+    std::advance(it, cursor);
+
+    size_t examined = 0;
+    size_t current_pos = cursor;
+
+    while (it != data_.end() && examined < count) {
+        current_pos++;
+        examined++;
+
+        if (is_expired(it->second)) {
+            size_t mem = estimate_memory(it->first, it->second.value);
+            if (used_memory_ >= mem) {
+                used_memory_ -= mem;
+            } else {
+                used_memory_ = 0;
+            }
+            remove_expiry(it->first);
+            lru_tracker_.remove(it->first);
+            lfu_tracker_.remove(it->first);
+            it = data_.erase(it);
+        } else {
+            if (pattern == "*" || match_pattern(it->first, pattern)) {
+                matched.push_back(it->first);
+            }
+            ++it;
+        }
+    }
+
+    size_t next_cursor = (it == data_.end() || current_pos >= data_.size()) ? 0 : current_pos;
+    return {next_cursor, matched};
 }
 
 } // namespace miniredis

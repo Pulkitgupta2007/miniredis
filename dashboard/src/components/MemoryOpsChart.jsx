@@ -1,6 +1,7 @@
-import { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
+import { formatBytes } from '../utils/format';
 
-export function MemoryOpsChart({ history = [] }) {
+function MemoryOpsChartComponent({ history = [] }) {
   // history is array of { timestamp, used_memory, ops_per_sec }
   const width = 600;
   const height = 180;
@@ -81,12 +82,6 @@ export function MemoryOpsChart({ history = [] }) {
     };
   }, [displayHistory]);
 
-  const formatBytes = (bytes) => {
-    if (!bytes || bytes <= 0) return '0B';
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
-  };
 
   const handleMouseMove = (e) => {
     if (!svgRef.current || displayHistory.length === 0) return;
@@ -116,7 +111,7 @@ export function MemoryOpsChart({ history = [] }) {
         <div className="chart-legend">
           <span className="legend-item">
             <span className="legend-dot dot-memory"></span>
-            Memory: <b>{formatBytes(chartData.latestMem)}</b>
+            Memory: <b>{formatBytes(chartData.latestMem, false)}</b>
           </span>
           <span className="legend-item">
             <span className="legend-dot dot-ops"></span>
@@ -129,7 +124,7 @@ export function MemoryOpsChart({ history = [] }) {
         {hoveredItem && (
           <div className="chart-tooltip">
             <span>Epoch #{hoverIndex + 1}:</span>
-            <span style={{ color: '#c084fc' }}>Mem: <b>{formatBytes(hoveredItem.used_memory || 0)}</b></span>
+            <span style={{ color: '#c084fc' }}>Mem: <b>{formatBytes(hoveredItem.used_memory || 0, false)}</b></span>
             <span style={{ color: '#22d3ee' }}>Ops: <b>{hoveredItem.ops_per_sec || 0}/s</b></span>
           </div>
         )}
@@ -176,7 +171,7 @@ export function MemoryOpsChart({ history = [] }) {
 
           {/* Left Y Axis (Memory) */}
           <text x={padding.left - 8} y={padding.top + 4} fill="#b45309" fontSize="10" textAnchor="end">
-            {formatBytes(chartData.maxMem)}
+            {formatBytes(chartData.maxMem, false)}
           </text>
           <text x={padding.left - 8} y={height - padding.bottom} fill="#6b5f49" fontSize="10" textAnchor="end">
             0B
@@ -280,4 +275,4 @@ export function MemoryOpsChart({ history = [] }) {
   );
 }
 
-export default MemoryOpsChart;
+export const MemoryOpsChart = React.memo(MemoryOpsChartComponent);

@@ -185,6 +185,13 @@ bool AofManager::rewrite(Store& store) {
         return false;
     }
 
+    auto abort_rewrite = [&](const char* err_msg) {
+        std::cerr << "[AOF ERROR] " << err_msg << ": " << std::strerror(errno) << "\n";
+        ::close(tmp_fd);
+        ::unlink(tmp_filename.c_str());
+        return false;
+    };
+
     // Iterate all active keys in the database
     auto all_keys = store.keys("*");
     int64_t now_ms = current_epoch_ms();
@@ -198,7 +205,10 @@ bool AofManager::rewrite(Store& store) {
         // 1. Emit SET command
         std::vector<std::string> set_args = {"SET", key, *val};
         std::string set_frame = RespSerializer::serialize_array(set_args);
-        (void)::write(tmp_fd, set_frame.data(), set_frame.size());
+        ssize_t w1 = ::write(tmp_fd, set_frame.data(), set_frame.size());
+        if (w1 < 0 || static_cast<size_t>(w1) != set_frame.size()) {
+            return abort_rewrite("Write failure during AOF compaction (SET)");
+        }
 
         // 2. Emit absolute expiration if key has a TTL
         int64_t remaining_ms = store.pttl(key);
@@ -206,17 +216,23 @@ bool AofManager::rewrite(Store& store) {
             int64_t absolute_expire_ms = now_ms + remaining_ms;
             std::vector<std::string> expire_args = {"PEXPIREAT", key, std::to_string(absolute_expire_ms)};
             std::string exp_frame = RespSerializer::serialize_array(expire_args);
-            (void)::write(tmp_fd, exp_frame.data(), exp_frame.size());
+            ssize_t w2 = ::write(tmp_fd, exp_frame.data(), exp_frame.size());
+            if (w2 < 0 || static_cast<size_t>(w2) != exp_frame.size()) {
+                return abort_rewrite("Write failure during AOF compaction (PEXPIREAT)");
+            }
         }
     }
 
     // Ensure all compacted bytes are synchronized to storage media
-    ::fsync(tmp_fd);
+    if (::fsync(tmp_fd) != 0) {
+        return abort_rewrite("Fsync failure during AOF compaction");
+    }
     ::close(tmp_fd);
 
     // Atomic replace via POSIX rename
     if (::rename(tmp_filename.c_str(), filename_.c_str()) != 0) {
         std::cerr << "[AOF] Failed to atomically rename rewrite file: " << std::strerror(errno) << "\n";
+        ::unlink(tmp_filename.c_str());
         return false;
     }
 

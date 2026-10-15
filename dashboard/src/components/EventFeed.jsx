@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
-export function EventFeed({ events = [] }) {
+function EventFeedComponent({ events = [] }) {
   const [filter, setFilter] = useState('ALL');
 
   const filteredEvents = events.filter((ev) => {
@@ -71,3 +71,5 @@ export function EventFeed({ events = [] }) {
     </div>
   );
 }
+
+export const EventFeed = React.memo(EventFeedComponent);

@@ -99,7 +99,6 @@ public:
     static std::string serialize_integer(int64_t val);
     static std::string serialize_bulk_string(std::string_view s);
     static std::string serialize_null();
-    static std::string serialize_null_array();
     static std::string serialize_array(const std::vector<std::string>& bulk_strings);
 };
 

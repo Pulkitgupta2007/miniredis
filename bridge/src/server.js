@@ -9,7 +9,7 @@ function createBridgeServer(options = {}) {
   const redisPort = options.redisPort || parseInt(process.env.REDIS_PORT || '6379', 10);
   const redisHost = options.redisHost || process.env.REDIS_HOST || '127.0.0.1';
   const port = options.port !== undefined ? options.port : parseInt(process.env.BRIDGE_PORT || '4000', 10);
-  const pollIntervalMs = options.pollInterval || 1000;
+  const pollIntervalMs = options.pollInterval || 2500;
 
   const redis = new RedisClient({
     port: redisPort,
@@ -51,38 +51,6 @@ function createBridgeServer(options = {}) {
       }));
     }
 
-    if (req.method === 'GET' && parsedUrl.pathname === '/api/keys') {
-      try {
-        const rawKeys = await redis.sendCommand('KEYS *');
-        const keyList = Array.isArray(rawKeys) ? rawKeys : [];
-        const targetKeys = keyList.slice(0, 100);
-        const details = await Promise.all(
-          targetKeys.map(async (k) => {
-            try {
-              const [val, ttl, mem] = await Promise.all([
-                redis.sendCommand(`GET ${k}`),
-                redis.sendCommand(`TTL ${k}`),
-                redis.sendCommand(`MEMORY USAGE ${k}`)
-              ]);
-              return {
-                key: k,
-                value: typeof val === 'string' ? val : (val === null ? null : String(val)),
-                ttl: typeof ttl === 'number' ? ttl : parseInt(ttl, 10) || -1,
-                memory: typeof mem === 'number' ? mem : parseInt(mem, 10) || 0
-              };
-            } catch {
-              return { key: k, value: null, ttl: -2, memory: 0 };
-            }
-          })
-        );
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ success: true, keys: details, total: keyList.length }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ success: false, error: err.message }));
-      }
-    }
-
     if (req.method === 'POST' && parsedUrl.pathname === '/api/command') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
@@ -95,8 +63,8 @@ function createBridgeServer(options = {}) {
           }
 
           const result = await redis.sendCommand(payload.command);
-          // Trigger immediate refresh after mutation
-          triggerPoll().catch(() => {});
+          // Trigger debounced refresh after mutation
+          scheduleThrottledPoll();
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ success: true, result }));
@@ -111,20 +79,27 @@ function createBridgeServer(options = {}) {
     // Serve static dashboard dist if exists
     const distPath = path.resolve(__dirname, '../../dashboard/dist');
     if (fs.existsSync(distPath)) {
-      let filePath = path.join(distPath, parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname);
-      if (!fs.existsSync(filePath)) {
+      const targetRel = parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname.replace(/^\/+/, '');
+      const safePath = path.resolve(distPath, targetRel);
+      let filePath = safePath;
+
+      // Prevent path traversal outside distPath
+      if (!safePath.startsWith(distPath) || !fs.existsSync(safePath)) {
         filePath = path.join(distPath, 'index.html');
       }
-      const ext = path.extname(filePath);
-      const mimeTypes = {
-        '.html': 'text/html',
-        '.js': 'application/javascript',
-        '.css': 'text/css',
-        '.json': 'application/json',
-        '.svg': 'image/svg+xml'
-      };
-      res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'text/plain' });
-      return fs.createReadStream(filePath).pipe(res);
+
+      if (fs.existsSync(filePath)) {
+        const ext = path.extname(filePath);
+        const mimeTypes = {
+          '.html': 'text/html',
+          '.js': 'application/javascript',
+          '.css': 'text/css',
+          '.json': 'application/json',
+          '.svg': 'image/svg+xml'
+        };
+        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'text/plain' });
+        return fs.createReadStream(filePath).pipe(res);
+      }
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -135,6 +110,7 @@ function createBridgeServer(options = {}) {
   const wss = new WebSocketServer({ server });
 
   function broadcast(data) {
+    if (!wss || wss.clients.size === 0) return;
     const message = JSON.stringify(data);
     for (const client of wss.clients) {
       if (client.readyState === WebSocket.OPEN) {
@@ -143,7 +119,19 @@ function createBridgeServer(options = {}) {
     }
   }
 
+  let pollDebounceTimer = null;
+  let pollInProgress = false;
+
+  function scheduleThrottledPoll(delayMs = 80) {
+    if (pollDebounceTimer) clearTimeout(pollDebounceTimer);
+    pollDebounceTimer = setTimeout(() => {
+      pollDebounceTimer = null;
+      triggerPoll().catch(() => {});
+    }, delayMs);
+  }
+
   async function triggerPoll() {
+    if (pollInProgress) return;
     if (!redis.isConnected) {
       state.online = false;
       broadcast({
@@ -154,6 +142,7 @@ function createBridgeServer(options = {}) {
       return;
     }
 
+    pollInProgress = true;
     try {
       const [metrics, lru_keys, lfu_keys, events] = await Promise.all([
         redis.getInfo(),
@@ -184,6 +173,8 @@ function createBridgeServer(options = {}) {
         timestamp: Date.now(),
         error: err.message
       });
+    } finally {
+      pollInProgress = false;
     }
   }
 
@@ -197,6 +188,10 @@ function createBridgeServer(options = {}) {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
+    }
+    if (pollDebounceTimer) {
+      clearTimeout(pollDebounceTimer);
+      pollDebounceTimer = null;
     }
   }
 
@@ -235,8 +230,8 @@ function createBridgeServer(options = {}) {
               success: true,
               result
             }));
-            // Update telemetry immediately on write/mutation
-            triggerPoll().catch(() => {});
+            // Update telemetry with throttled poll on write/mutation
+            scheduleThrottledPoll();
           } catch (err) {
             ws.send(JSON.stringify({
               type: 'COMMAND_REPLY',

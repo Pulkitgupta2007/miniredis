@@ -1,9 +1,10 @@
 #include "miniredis/command.h"
 #include "miniredis/resp.h"
 
-#include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <iomanip>
+#include <sstream>
 
 namespace miniredis {
 
@@ -149,6 +150,53 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
         }
         auto matched = store.keys(args[1]);
         cr.response = RespSerializer::serialize_array(matched);
+        return cr;
+    }
+
+    if (cmd == "SCAN") {
+        if (args.size() < 2) {
+            cr.response = RespSerializer::serialize_error("ERR wrong number of arguments for 'scan' command");
+            return cr;
+        }
+
+        size_t cursor = 0;
+        auto [ptr, ec] = std::from_chars(args[1].data(), args[1].data() + args[1].size(), cursor);
+        if (ec != std::errc() || ptr != args[1].data() + args[1].size()) {
+            cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+            return cr;
+        }
+
+        std::string pattern = "*";
+        size_t count = 10;
+
+        for (size_t i = 2; i < args.size(); i += 2) {
+            if (i + 1 >= args.size()) {
+                cr.response = RespSerializer::serialize_error("ERR syntax error");
+                return cr;
+            }
+            std::string opt = to_upper(args[i]);
+            if (opt == "MATCH") {
+                pattern = args[i + 1];
+            } else if (opt == "COUNT") {
+                int64_t c = 0;
+                auto [p, e] = std::from_chars(args[i + 1].data(), args[i + 1].data() + args[i + 1].size(), c);
+                if (e == std::errc() && p == args[i + 1].data() + args[i + 1].size() && c > 0) {
+                    count = static_cast<size_t>(c);
+                } else {
+                    cr.response = RespSerializer::serialize_error("ERR value is not an integer or out of range");
+                    return cr;
+                }
+            } else {
+                cr.response = RespSerializer::serialize_error("ERR syntax error");
+                return cr;
+            }
+        }
+
+        auto [next_cursor, matched_keys] = store.scan(cursor, pattern, count);
+        std::string resp = "*2\r\n";
+        resp += RespSerializer::serialize_bulk_string(std::to_string(next_cursor));
+        resp += RespSerializer::serialize_array(matched_keys);
+        cr.response = std::move(resp);
         return cr;
     }
 
@@ -360,11 +408,6 @@ CommandResult CommandDispatcher::execute(const std::vector<std::string>& args, S
             formatted_events.push_back(ev.format());
         }
         cr.response = RespSerializer::serialize_array(formatted_events);
-        return cr;
-    }
-
-    if (cmd == "MONITOR") {
-        cr.response = RespSerializer::serialize_simple_string("OK");
         return cr;
     }
 

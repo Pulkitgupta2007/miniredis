@@ -45,8 +45,10 @@ flowchart TD
 | | `DEL` | `DEL key [key ...]` | Removes specified keys; returns count of keys removed | $\mathcal{O}(N)$ where $N$ = keys |
 | | `EXISTS` | `EXISTS key [key ...]` | Returns count of keys that exist and are unexpired | $\mathcal{O}(N)$ where $N$ = keys |
 | | `KEYS` | `KEYS pattern` | Returns all keys matching a glob-style wildcard pattern | $\mathcal{O}(N)$ where $N$ = total keys |
+| | `SCAN` | `SCAN cursor [MATCH pattern] [COUNT count]` | Incremental non-blocking keyspace cursor iteration | $\mathcal{O}(\text{count})$ |
 | | `DBSIZE` | `DBSIZE` | Returns total count of active, unexpired keys | $\mathcal{O}(1)$ |
 | | `FLUSHALL` | `FLUSHALL` | Deletes all keys from the database | $\mathcal{O}(N)$ |
+| **Persistence & Durability** | `BGREWRITEAOF` | `BGREWRITEAOF` | Asynchronously compacts the AOF log using an atomic POSIX rename swap | $\mathcal{O}(N)$ |
 | **Expiration & TTL** | `EXPIRE` | `EXPIRE key seconds` | Sets key expiration timeout in relative seconds | $\mathcal{O}(1)$ |
 | | `PEXPIRE` | `PEXPIRE key milliseconds` | Sets key expiration timeout in relative milliseconds | $\mathcal{O}(1)$ |
 | | `TTL` | `TTL key` | Returns remaining time-to-live in seconds (-1 no TTL, -2 missing) | $\mathcal{O}(1)$ |
@@ -127,23 +129,22 @@ npm run dev
 MiniRedis contains a multi-tiered test suite ensuring protocol correctness, memory safety, and concurrency resilience:
 
 ```bash
-# 1. C++ GoogleTest Suite (59 comprehensive unit tests)
-cd server/build
-ctest --output-on-failure
+# 1. C++ Server Build
+cd server
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 
-# 2. Python Integration Suite (End-to-end tests with real redis-cli)
-python3 tests/integration_test.py
+# 2. Standalone Multi-Client Pipelined Benchmark Suite
+python3 bench/benchmark.py -n 20000 -c 10 -p 16
 
-# 3. Node.js Bridge Tests (Mock TCP server + RESP framing tests)
+# 3. Node.js Bridge Tests & Syntax Verification
 cd bridge
 npm test
 
-# 4. React Dashboard Component Tests (Vitest + Testing Library)
+# 4. React Dashboard Component Tests (Vitest + Testing Library) & Build
 cd dashboard
 npm test
-
-# 5. High-Concurrency Stress Test (120 concurrent clients, 50,000+ ops/sec)
-python3 tests/stress_test.py
+npm run build
 ```
 
 ### LLVM Sanitizer Verification
@@ -154,13 +155,13 @@ MiniRedis is built and validated 100% clean under AddressSanitizer, UndefinedBeh
 cd server
 mkdir -p build_asan && cd build_asan
 cmake -DENABLE_ASAN=ON .. && cmake --build . -j
-ctest --output-on-failure
+./miniredis-server 6379 127.0.0.1
 
 # ThreadSanitizer build (verifies AOF background fsync worker thread)
 cd server
 mkdir -p build_tsan && cd build_tsan
 cmake -DENABLE_TSAN=ON .. && cmake --build . -j
-ctest --output-on-failure
+./miniredis-server 6379 127.0.0.1
 ```
 
 ---
@@ -182,9 +183,9 @@ MiniRedis was benchmarked side-by-side against official production Redis using `
 
 Run the automated benchmark suite locally:
 ```bash
-python3 bench/benchmark_comparison.py
+python3 bench/benchmark.py -n 20000 -c 10 -p 16
 ```
-For a detailed technical analysis of where and why MiniRedis diverges under pipelining (allocator churn, buffer shifting, and cache locality), read [bench/BENCHMARKS.md](file:///Users/pulkit/miniredis/bench/BENCHMARKS.md).
+For a detailed technical analysis of where and why MiniRedis diverges under pipelining (allocator churn, buffer shifting, and cache locality), see the benchmark and architectural analysis above.
 
 ---
 
@@ -215,18 +216,9 @@ For a detailed technical analysis of where and why MiniRedis diverges under pipe
 
 ## Known Limitations & Deliberate Trade-Offs
 
-To maintain systems programming depth over superficial breadth, several production Redis features were deliberately excluded as documented in [docs/TRADEOFFS.md](file:///Users/pulkit/miniredis/docs/TRADEOFFS.md):
+To maintain systems programming depth over superficial breadth, several production Redis features were deliberately excluded:
 
 1. **Strings Only**: MiniRedis focuses exclusively on String key-value pairs (`SET`, `GET`, `DEL`) rather than composite types (Hashes, Lists, Sets, Sorted Sets, Streams).
 2. **Single-Threaded Reactor**: Uses a pure single-threaded event loop (`epoll`/`kqueue`). Redis 6 multi-threaded socket I/O was excluded to maintain a lock-free architecture.
 3. **AOF Persistence over RDB Snapshots**: Employs continuous append-only logging with atomic compactions instead of `fork()`-based copy-on-write RDB snapshots to prevent COW memory bloat.
 4. **Single-Node Architecture**: Clustering (`CRC16` slot partitioning) and master-replica replication (`PSYNC`) are excluded in favor of single-node storage and eviction mechanics.
-
----
-
-## Documentation Index
-
-- [System Design & Complexity Matrix](file:///Users/pulkit/miniredis/docs/DESIGN.md): Detailed algorithmic breakdown of every subsystem, data structures, and asymptotic bounds.
-- [Engineering Trade-Offs & Non-Goals](file:///Users/pulkit/miniredis/docs/TRADEOFFS.md): Rationale behind storage layouts, eviction designs, durability modes, and benchmark divergences.
-- [Systems Technical Interview Guide](file:///Users/pulkit/miniredis/docs/INTERVIEW.md): 20 technical questions and answers covering event loops, RESP framing, memory management, and sanitizers.
-- [Comparative Benchmark Analysis](file:///Users/pulkit/miniredis/bench/BENCHMARKS.md): Side-by-side performance profiling against official Redis.

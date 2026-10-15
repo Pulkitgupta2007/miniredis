@@ -9,7 +9,7 @@ import { TrafficPlayground } from './components/TrafficPlayground';
 import { KeyspaceExplorer } from './components/KeyspaceExplorer';
 import './App.css';
 
-export function App() {
+function App() {
   const [online, setOnline] = useState(false);
   const [metrics, setMetrics] = useState({});
   const [lruKeys, setLruKeys] = useState([]);
@@ -116,7 +116,7 @@ export function App() {
   }, [connectWebSocket]);
 
   const executeCommand = async (commandStr) => {
-    const id = `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const id = `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const ws = wsRef.current;
 
     if (ws && ws.readyState === WebSocket.OPEN) {

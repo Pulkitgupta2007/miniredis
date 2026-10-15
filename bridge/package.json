@@ -4,7 +4,8 @@
   "description": "MiniRedis Node.js telemetry bridge and command proxy",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --check src/server.js && node --check src/redis-client.js && node --check src/parser.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

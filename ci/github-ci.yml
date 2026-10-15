@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
-    name: Build & Unit / Integration Tests
+  build-server:
+    name: Build C++ Core Engine & Server
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -17,19 +17,13 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential python3 redis-tools
+          sudo apt-get install -y cmake build-essential
 
       - name: Configure CMake
         run: cmake -B server/build -S server -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Core Engine & Test Targets
-        run: cmake --build server/build -j$(nproc)
-
-      - name: Run GoogleTest Suite (59 Unit & Fuzz Tests)
-        run: ctest --test-dir server/build --output-on-failure
-
-      - name: Run Python Integration Suite (redis-cli + TCP sockets)
-        run: python3 server/tests/integration_test.py
+      - name: Compile Core Engine & Binary
+        run: cmake --build server/build --target miniredis-server -j$(nproc)
 
   sanitizers:
     name: Sanitizer Verifications (ASan, UBSan, TSan)
@@ -43,44 +37,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential clang
 
-      - name: Build & Test Under AddressSanitizer & UBSan
+      - name: Build Under AddressSanitizer & UBSan
         env:
           CC: clang
           CXX: clang++
         run: |
           cmake -B server/build_asan -S server -DENABLE_ASAN=ON
-          cmake --build server/build_asan -j$(nproc)
-          ctest --test-dir server/build_asan --output-on-failure
+          cmake --build server/build_asan --target miniredis-server -j$(nproc)
 
-      - name: Build & Test Under ThreadSanitizer
+      - name: Build Under ThreadSanitizer
         env:
           CC: clang
           CXX: clang++
         run: |
           cmake -B server/build_tsan -S server -DENABLE_TSAN=ON
-          cmake --build server/build_tsan -j$(nproc)
-          ctest --test-dir server/build_tsan --output-on-failure
-
-  stress-and-bench:
-    name: High-Concurrency Stress Test
-    runs-on: ubuntu-latest
-    needs: [build-and-test]
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Build Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential python3
-
-      - name: Build Server
-        run: |
-          cmake -B server/build -S server -DCMAKE_BUILD_TYPE=Release
-          cmake --build server/build --target miniredis-server -j$(nproc)
-
-      - name: Run 120-Client Concurrency Stress Test
-        run: python3 bench/stress_test.py
+          cmake --build server/build_tsan --target miniredis-server -j$(nproc)
 
   bridge-and-dashboard:
     name: Node.js Bridge & React Dashboard

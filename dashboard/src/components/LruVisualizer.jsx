@@ -1,6 +1,6 @@
-import { useState, useMemo, Fragment } from 'react';
+import React, { useState, useMemo, Fragment } from 'react';
 
-export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey }) {
+function LruVisualizerComponent({ keys = [], lfuKeys = [], onSelectKey }) {
   const [viewMode, setViewMode] = useState('lru'); // 'lru' | 'lfu'
 
   // Parse LFU keys formatted as "key:freq"
@@ -182,4 +182,4 @@ export function LruVisualizer({ keys = [], lfuKeys = [], onSelectKey }) {
   );
 }
 
-export default LruVisualizer;
+export const LruVisualizer = React.memo(LruVisualizerComponent);

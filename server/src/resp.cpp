@@ -307,10 +307,6 @@ std::string RespSerializer::serialize_null() {
     return "$-1\r\n";
 }
 
-std::string RespSerializer::serialize_null_array() {
-    return "*-1\r\n";
-}
-
 std::string RespSerializer::serialize_array(const std::vector<std::string>& bulk_strings) {
     std::string out;
     out.push_back('*');

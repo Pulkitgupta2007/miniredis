@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { formatBytes } from '../utils/format';
 
-export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
+function KeyspaceExplorerComponent({ onExecute, online, onSelectKey }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,26 +23,10 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
     if (!online) return;
     setLoading(true);
     try {
-      // 1. Try bridge HTTP /api/keys endpoint
-      const host = typeof window !== 'undefined' && (window.location.port === '3000' || window.location.port === '5173')
-        ? `http://${window.location.hostname}:4000`
-        : '';
-      const res = await fetch(`${host}/api/keys`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.keys)) {
-          setKeys(data.keys);
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {
-      // Fallback to direct Redis commands via onExecute
-    }
-
-    try {
-      const rawKeys = await onExecute('KEYS *');
-      const keyList = Array.isArray(rawKeys) ? rawKeys : [];
+      const scanRes = await onExecute('SCAN 0 COUNT 50');
+      const keyList = Array.isArray(scanRes) && Array.isArray(scanRes[1])
+        ? scanRes[1]
+        : (Array.isArray(scanRes) ? scanRes : []);
       const targetKeys = keyList.slice(0, 50);
 
       const items = await Promise.all(
@@ -175,19 +160,11 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
     k.key.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const formatMemory = (bytes) => {
-    if (!bytes || bytes <= 0) return '0 B';
-    if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
-    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${bytes} B`;
-  };
-
   return (
     <div className="keyspace-explorer-container" data-testid="keyspace-explorer">
       {/* Explorer Header */}
       <div className="explorer-header">
         <div className="explorer-title-area">
-          <span className="explorer-icon">🗄️</span>
           <div>
             <h3 className="explorer-title">Keyspace Explorer & Data Browser</h3>
             <p className="explorer-subtitle">Inspect, edit, query, and monitor keys with live TTL countdowns</p>
@@ -283,7 +260,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                       </code>
                     </td>
                     <td className="key-mem-cell">
-                      <span className="mem-badge">{formatMemory(item.memory)}</span>
+                      <span className="mem-badge">{formatBytes(item.memory)}</span>
                     </td>
                     <td className="key-ttl-cell">
                       {isPersistent ? (
@@ -291,17 +268,9 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                       ) : isExpired ? (
                         <span className="ttl-badge expired">Expired</span>
                       ) : (
-                        <div className="ttl-bar-wrapper">
-                          <span className={`ttl-badge expiring ${item.ttl < 10 ? 'critical' : item.ttl < 30 ? 'warn' : ''}`}>
-                            ⏱ {item.ttl}s
-                          </span>
-                          <div className="ttl-progress-track">
-                            <div
-                              className="ttl-progress-fill"
-                              style={{ width: `${Math.min(100, (item.ttl / 120) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
+                        <span className="ttl-text">
+                          {item.ttl}s
+                        </span>
                       )}
                     </td>
                     <td className="key-actions-cell">
@@ -311,7 +280,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                         className="action-btn inspect-btn"
                         title="Inspect & Edit"
                       >
-                        ✏️ Edit
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -347,7 +316,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                   placeholder="e.g. user:profile:100"
                   value={newKey}
                   onChange={(e) => setNewKey(e.target.value)}
-                  className="modal-input font-mono"
+                  className="modal-input"
                   required
                 />
               </div>
@@ -359,7 +328,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                   placeholder='e.g. {"name": "Alice", "role": "admin"}'
                   value={newValue}
                   onChange={(e) => setNewValue(e.target.value)}
-                  className="modal-textarea font-mono"
+                  className="modal-textarea"
                 />
               </div>
 
@@ -440,7 +409,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
             </div>
 
             <div className="modal-meta-row">
-              <span className="meta-pill">Memory: <b>{formatMemory(inspectMemory)}</b></span>
+              <span className="meta-pill">Memory: <b>{formatBytes(inspectMemory)}</b></span>
               <span className="meta-pill">Length: <b>{inspectValue.length} chars</b></span>
             </div>
 
@@ -451,7 +420,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                   rows="6"
                   value={inspectValue}
                   onChange={(e) => setInspectValue(e.target.value)}
-                  className="modal-textarea font-mono"
+                  className="modal-textarea"
                 />
               </div>
 
@@ -462,7 +431,7 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
                   placeholder="TTL in seconds (0 = PERSIST)"
                   value={inspectTtl}
                   onChange={(e) => setInspectTtl(e.target.value)}
-                  className="modal-input font-mono"
+                  className="modal-input"
                 />
               </div>
 
@@ -506,4 +475,4 @@ export function KeyspaceExplorer({ onExecute, online, onSelectKey }) {
   );
 }
 
-export default KeyspaceExplorer;
+export const KeyspaceExplorer = React.memo(KeyspaceExplorerComponent);

@@ -1,10 +1,7 @@
-export function MetricCards({ metrics = {} }) {
-  const formatBytes = (bytes) => {
-    if (!bytes && bytes !== 0) return '0 B';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
+import React from 'react';
+import { formatBytes } from '../utils/format';
+
+function MetricCardsComponent({ metrics = {} }) {
 
   const usedMem = metrics.used_memory || 0;
   const maxMem = metrics.maxmemory || 0;
@@ -48,7 +45,7 @@ export function MetricCards({ metrics = {} }) {
           {maxMem > 0 ? (
             <div className="ratio-bar-bg">
               <div
-                className={`ratio-bar-fill ${memPct > 85 ? 'fill-danger' : 'fill-purple'}`}
+                className="ratio-bar-fill"
                 style={{ width: `${memPct}%` }}
               ></div>
             </div>
@@ -75,3 +72,5 @@ export function MetricCards({ metrics = {} }) {
     </div>
   );
 }
+
+export const MetricCards = React.memo(MetricCardsComponent);

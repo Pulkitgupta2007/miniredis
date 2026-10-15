@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 
 const REDIS_COMMAND_HINTS = [
   { cmd: 'SET', syntax: 'SET <key> <value> [EX seconds | PX ms] [NX | XX]', desc: 'Store string value with optional TTL and conditions' },
@@ -23,21 +23,12 @@ const REDIS_COMMAND_HINTS = [
   { cmd: 'PING', syntax: 'PING [message]', desc: 'Ping the server liveness' }
 ];
 
-const TEMPLATE_SNIPPETS = [
-  { label: '👤 User Session (1h TTL)', cmd: 'SET session:user:101 \'{"name":"Alice","role":"admin"}\' EX 3600' },
-  { label: '⏱️ Rate Limit Window', cmd: 'SET ratelimit:ip:127.0.0.1 "1" EX 60 NX' },
-  { label: '🔒 Mutex Lock (NX/EX)', cmd: 'SET lock:resource:order "worker_1" EX 30 NX' },
-  { label: '📄 Cache Page (2m TTL)', cmd: 'SET cache:page:index "<html><h1>MiniRedis</h1></html>" EX 120' },
-  { label: '⚙️ Set 50KB LRU Limit', cmd: 'CONFIG SET maxmemory 51200' },
-  { label: '🔍 Check Key Memory', cmd: 'MEMORY USAGE session:user:101' }
-];
-
-export function CommandConsole({ onExecute, online, prefillCommand }) {
+function CommandConsoleComponent({ onExecute, online, prefillCommand }) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([
     {
       type: 'system',
-      text: 'Connected to MiniRedis Console. Type a command (e.g. SET foo bar) or select an example template.'
+      text: 'Connected to MiniRedis Console. Type a command (e.g. SET foo bar) and press Enter.'
     }
   ]);
   const [cmdIndex, setCmdIndex] = useState(-1);
@@ -86,7 +77,7 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
 
     if (!online) {
       setHistory((prev) => [
-        ...prev,
+        ...prev.slice(-250),
         { type: 'input', text: trimmed },
         { type: 'error', text: 'Error: MiniRedis server is offline. Cannot execute command.' }
       ]);
@@ -94,12 +85,12 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
       return;
     }
 
-    setPastCommands((prev) => [trimmed, ...prev]);
+    setPastCommands((prev) => [trimmed, ...prev.slice(0, 49)]);
     setCmdIndex(-1);
     setLoading(true);
 
     const startTime = performance.now();
-    setHistory((prev) => [...prev, { type: 'input', text: trimmed }]);
+    setHistory((prev) => [...prev.slice(-250), { type: 'input', text: trimmed }]);
     setInput('');
 
     try {
@@ -118,11 +109,11 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
       }
 
       setHistory((prev) => [
-        ...prev,
+        ...prev.slice(-250),
         { type: 'output', text: formattedResult, latency: `${elapsedMs} ms` }
       ]);
     } catch (err) {
-      setHistory((prev) => [...prev, { type: 'error', text: `(error) ${err.message}` }]);
+      setHistory((prev) => [...prev.slice(-250), { type: 'error', text: `(error) ${err.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -174,15 +165,6 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
     if (inputRef.current) inputRef.current.focus();
   };
 
-  const handleSelectTemplate = (e) => {
-    const val = e.target.value;
-    if (val) {
-      setInput(val);
-      e.target.value = '';
-      if (inputRef.current) inputRef.current.focus();
-    }
-  };
-
   return (
     <div className="panel-card console-panel" data-testid="console-panel">
       <div className="panel-header">
@@ -191,18 +173,6 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
           <span className="panel-desc">Direct RESP2 proxy with syntax hints and execution latency</span>
         </div>
         <div className="quick-actions">
-          <select
-            className="template-select"
-            onChange={handleSelectTemplate}
-            defaultValue=""
-            disabled={!online}
-            title="Load command snippet"
-          >
-            <option value="" disabled>Templates & Snippets ▾</option>
-            {TEMPLATE_SNIPPETS.map((s, idx) => (
-              <option key={idx} value={s.cmd}>{s.label}</option>
-            ))}
-          </select>
 
           <button type="button" className="quick-btn" onClick={() => setInput('SET mykey "Hello World"')}>
             SET
@@ -302,4 +272,4 @@ export function CommandConsole({ onExecute, online, prefillCommand }) {
   );
 }
 
-export default CommandConsole;
+export const CommandConsole = React.memo(CommandConsoleComponent);

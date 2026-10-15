@@ -11,5 +11,17 @@ node_modules/
 dist/
 .env
 
-# OS files
+# OS & Tool files
 .DS_Store
+.VSCodeCounter/
+
+# AOF persistence files
+*.aof
+*.aof.rewrite.tmp
+
+# Python benchmark cache
+__pycache__/
+*.pyc
+
+# Local documentation & interview notes
+docs/

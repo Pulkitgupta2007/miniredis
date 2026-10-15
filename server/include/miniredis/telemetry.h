@@ -2,10 +2,8 @@
 
 #include <chrono>
 #include <cstdint>
-#include <iomanip>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace miniredis {

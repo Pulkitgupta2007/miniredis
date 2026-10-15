@@ -1,9 +1,10 @@
 #pragma once
 
-#include <map>
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace miniredis {
@@ -119,8 +120,12 @@ public:
 
     std::vector<std::string> get_keys_in_order() const {
         std::vector<std::string> result;
-        std::map<size_t, FreqBucket*> sorted_buckets(freq_buckets_.begin(), freq_buckets_.end());
-        for (const auto& [freq, bucket] : sorted_buckets) {
+        std::vector<std::pair<size_t, FreqBucket*>> buckets(freq_buckets_.begin(), freq_buckets_.end());
+        std::sort(buckets.begin(), buckets.end(), [](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+        for (const auto& [freq, bucket] : buckets) {
+            (void)freq;
             if (!bucket || bucket->empty()) continue;
             Node* curr = bucket->head->next;
             while (curr != bucket->tail) {

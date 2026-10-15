@@ -1,4 +1,6 @@
-export function Header({ online, uptimeSeconds, connectedClients }) {
+import React from 'react';
+
+function HeaderComponent({ online, uptimeSeconds, connectedClients }) {
   const formatUptime = (sec) => {
     if (!sec && sec !== 0) return '0s';
     const d = Math.floor(sec / 86400);
@@ -6,7 +8,7 @@ export function Header({ online, uptimeSeconds, connectedClients }) {
     const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
     if (d > 0) return `${d}d ${h}m`;
-    if (h > 0) return `${h}m ${s}s`;
+    if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
   };
@@ -36,4 +38,4 @@ export function Header({ online, uptimeSeconds, connectedClients }) {
   );
 }
 
-export default Header;
+export const Header = React.memo(HeaderComponent);

@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace miniredis {
@@ -104,9 +105,11 @@ public:
     size_t dbsize();
     void flushdb();
     void flushall();
-    std::string ping(std::optional<std::string_view> message = std::nullopt);
     std::vector<std::string> keys(std::string_view pattern = "*");
-    size_t expires_size() const;
+    std::pair<size_t, std::vector<std::string>> scan(
+        size_t cursor,
+        std::string_view pattern = "*",
+        size_t count = 10);
 
 private:
     struct Entry {
