@@ -8,7 +8,7 @@ const RedisClient = require('./redis-client');
 function createBridgeServer(options = {}) {
   const redisPort = options.redisPort || parseInt(process.env.REDIS_PORT || '6379', 10);
   const redisHost = options.redisHost || process.env.REDIS_HOST || '127.0.0.1';
-  const port = options.port !== undefined ? options.port : parseInt(process.env.BRIDGE_PORT || '4000', 10);
+  const port = options.port !== undefined ? options.port : parseInt(process.env.PORT || process.env.BRIDGE_PORT || '4000', 10);
   const pollIntervalMs = options.pollInterval || 2500;
 
   const redis = new RedisClient({
@@ -77,7 +77,9 @@ function createBridgeServer(options = {}) {
     }
 
     // Serve static dashboard dist if exists
-    const distPath = path.resolve(__dirname, '../../dashboard/dist');
+    const distPath = process.env.DASHBOARD_DIST 
+      ? path.resolve(process.env.DASHBOARD_DIST) 
+      : path.resolve(__dirname, '../../dashboard/dist');
     if (fs.existsSync(distPath)) {
       const targetRel = parsedUrl.pathname === '/' ? 'index.html' : parsedUrl.pathname.replace(/^\/+/, '');
       const safePath = path.resolve(distPath, targetRel);

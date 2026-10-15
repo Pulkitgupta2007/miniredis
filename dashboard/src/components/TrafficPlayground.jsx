@@ -234,7 +234,7 @@ function TrafficPlaygroundComponent({ onExecute, online, metrics }) {
           >
             <div className="sim-btn-header">
               <span className="sim-btn-name">
-                {adminActionLoading === 'aof' ? 'Rewriting AOF...' : 'BGREWRITEAOF'}
+                {adminActionLoading === 'aof' ? 'Rewriting AOF...' : 'BG REWRITE AOF'}
               </span>
             </div>
             <span className="sim-btn-desc">Compacts the Append-Only File into a minimal representation.</span>
