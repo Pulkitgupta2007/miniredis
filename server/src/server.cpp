@@ -23,7 +23,9 @@ void sigint_handler(int sig) {
     if (g_signal_write_fd >= 0) {
         char byte = 'q';
         // write() is guaranteed async-signal-safe by POSIX
-        (void)::write(g_signal_write_fd, &byte, 1);
+        if (::write(g_signal_write_fd, &byte, 1) < 0) {
+            // Error ignored safely in async signal handler
+        }
     }
 }
 
@@ -134,7 +136,9 @@ bool Server::start() {
         for (const auto& ev : events) {
             if (ev.fd == signal_pipe_[0]) {
                 char dummy;
-                (void)::read(signal_pipe_[0], &dummy, 1);
+                if (::read(signal_pipe_[0], &dummy, 1) < 0) {
+                    // Signal pipe drain error ignored safely
+                }
                 std::cout << "\n[MiniRedis] Received signal, shutting down gracefully...\n";
                 running_ = false;
                 break;
